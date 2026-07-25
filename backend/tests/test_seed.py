@@ -142,7 +142,7 @@ def test_seed_database_writes_expected_rows_and_relationships(tmp_path: object) 
 
     assert stats.stores == 10
     assert stats.products == 400
-    assert stats.price_histories == 124_800
+    assert stats.price_histories == 124_400
 
     connection = connect_database(database_path)
     try:
@@ -224,17 +224,14 @@ def test_seed_database_writes_expected_rows_and_relationships(tmp_path: object) 
             "SELECT COUNT(*) FROM products WHERE current_price_date IS NULL"
         ).fetchone()[0]
         latest_observation = connection.execute(
-            "SELECT MAX(date) FROM price_history"
+            "SELECT MAX(current_price_date) FROM products"
         ).fetchone()[0]
         honeycrisp_latest_prices = {
-            row["price"]
+            row["current_price"]
             for row in connection.execute(
                 """
-                SELECT history.price
+                SELECT current_price
                 FROM products AS product
-                JOIN price_history AS history
-                  ON history.product_id = product.id
-                 AND history.date = product.current_price_date
                 WHERE product.name = 'Honeycrisp Apples'
                 """
             )
@@ -244,7 +241,12 @@ def test_seed_database_writes_expected_rows_and_relationships(tmp_path: object) 
             for row in connection.execute(
                 """
                 SELECT sale, COUNT(*) AS history_count
-                FROM price_history GROUP BY sale ORDER BY sale
+                FROM (
+                    SELECT sale FROM price_history
+                    UNION ALL
+                    SELECT current_price_sale AS sale FROM products
+                )
+                GROUP BY sale ORDER BY sale
                 """
             )
         }
@@ -268,7 +270,7 @@ def test_seed_database_writes_expected_rows_and_relationships(tmp_path: object) 
         (store.name, store.address) for store in STORES
     ]
     assert product_tag_count == 1_207
-    assert histories_per_product == {312}
+    assert histories_per_product == {311}
     assert honeycrisp_tags == ["honeycrisp apple", "apple", "fruit"]
     assert ground_beef_tags == ["ground beef", "beef", "meat", "protein"]
     assert set(universal_store_counts.values()) == {10}
@@ -289,8 +291,26 @@ def test_seed_database_writes_expected_rows_and_relationships(tmp_path: object) 
         seed=1234,
     )
     assert honeycrisp_sale_history == [
-        (entry.date, entry.sale) for entry in expected_honeycrisp_history
+        (entry.date, entry.sale) for entry in expected_honeycrisp_history[:-1]
     ]
+    connection = connect_database(database_path)
+    try:
+        honeycrisp_current = connection.execute(
+            """
+            SELECT current_price_date, current_price,
+                   current_price_quantity, current_price_sale
+            FROM products
+            WHERE name = 'Honeycrisp Apples' AND store_id = 1
+            """
+        ).fetchone()
+    finally:
+        connection.close()
+    assert dict(honeycrisp_current) == {
+        "current_price_date": expected_honeycrisp_history[-1].date,
+        "current_price": expected_honeycrisp_history[-1].price,
+        "current_price_quantity": expected_honeycrisp_history[-1].quantity,
+        "current_price_sale": int(expected_honeycrisp_history[-1].sale),
+    }
 
     with pytest.raises(SeedDataExistsError):
         seed_database(database_path, as_of=date(2026, 7, 24), seed=1234)

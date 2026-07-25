@@ -168,24 +168,27 @@ values are rejected. Other normalized text fields, including tags, units, and
 Route request tags, are stripped and converted to lowercase. Internal spaces in
 multiword tags are preserved.
 
-Each Product owns a chronological `priceHistory` list. Every entry contains a
+`Price` is the shared value shape used by Product pricing. Every Price contains a
 nonnegative floating-point package `price`, a positive finite floating-point
 `quantity`, a Boolean `sale` flag, and a `date` expressed as a UTC Unix timestamp
 in seconds. Its floating-point `unitPrice` is computed as `price / quantity`; it
 is returned by the API but is not stored or accepted as source data. Duplicate
-dates for one product are rejected.
+dates in one Product's chronological `priceHistory` list are rejected.
 
-The Product `currentPrice` field is a static `PriceHistory` reference managed by
-the future price-scraping cron job. It points to an entry owned by that Product,
-or is `null`. The cron job must clear it when no price has been observed within
-the previous seven days; having older entries in `priceHistory` does not imply
-that a current price exists.
+The Product `currentPrice` field owns the newest known Price directly, or is
+`null`. The current Price is not also present in `priceHistory`: every history
+date must be strictly earlier. Recording a newer Price atomically archives the
+old current Price and replaces it. Late observations are added directly to
+history, exact retries are no-ops, and conflicting values at one timestamp are
+rejected. Clearing a current Price atomically archives it before setting the
+Product field to `null`.
 
-SQLite stores the pointer as `products.current_price_date` and enforces that it
-identifies an owned row in `price_history`. Route selections are also guarded at
-the database layer: a Product with a null current-price pointer cannot be added
-to a Route. Price-history rows persist `price`, `quantity`, and `sale`;
-`unitPrice` remains derived.
+The future price-scraping cleanup job must clear `currentPrice` when no Price has
+been observed within the previous seven days; having older history does not
+imply that a current Price exists. SQLite stores the complete current tuple on
+`products` and archived Prices in `price_history`. Database checks and triggers
+enforce complete nullable tuples and strict timestamp ordering. A Product with
+no current Price cannot be added to a Route. `unitPrice` remains derived.
 
 ### Route contract
 
@@ -396,8 +399,9 @@ python -m backend.tools.seed --reset --as-of 2026-07-24
 	so each store receives 20 of them.
 - Explicit multiword tags such as `honeycrisp apple` and `ground beef`, stored
 	as single tag values.
-- 312 twice-weekly PriceHistories per Product, or 124,800 rows total.
-- A `currentPrice` pointer to the final generated observation for every Product.
+- 311 archived Prices per Product, or 124,400 `price_history` rows total.
+- One Product-owned `currentPrice` containing the final generated observation,
+	for 124,800 generated Prices across current values and history.
 
 Generated prices are deterministic for the same seed, cutoff, Product, and
 Store. They include small weekly and per-Store differences, occasional
