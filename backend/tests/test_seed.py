@@ -2,14 +2,17 @@ from datetime import date, datetime, timezone
 
 import pytest
 
-from backend.resolvers import connect_database
+from backend.resolvers import connect_database, initialize_database, transaction
 from backend.tools.seed import (
     SPECIALTY_PRODUCTS,
     STORES,
+    TAGS,
     UNIVERSAL_PRODUCTS,
     WEEKS_OF_HISTORY,
     SeedDataExistsError,
+    _clear_domain_data,
     build_parser,
+    generate_modifiers,
     generate_price_history,
     observation_dates,
     products_for_store,
@@ -53,19 +56,63 @@ def test_catalog_has_balanced_product_availability() -> None:
     tags = {
         tag
         for product in UNIVERSAL_PRODUCTS + SPECIALTY_PRODUCTS
-        for tag in product.tags
+        for tag in product.tag_names
     }
     assert {tag for tag in tags if " " in tag} == EXPECTED_MULTIWORD_TAGS
+
+
+def test_tag_catalog_covers_memberships_with_shopping_defaults() -> None:
+    catalog = {tag.tag: tag for tag in TAGS}
+    tag_names = {
+        tag
+        for product in UNIVERSAL_PRODUCTS + SPECIALTY_PRODUCTS
+        for tag in product.tag_names
+    }
+
+    assert len(TAGS) == len(catalog) == 137
+    assert set(catalog) == tag_names
+    assert all(tag.default_unit == tag.default_unit.strip().lower() for tag in TAGS)
+    assert all(tag.default_quantity > 0 for tag in TAGS)
+    assert (catalog["egg"].default_unit, catalog["egg"].default_quantity) == (
+        "count",
+        6,
+    )
+    assert (
+        catalog["corn tortilla"].default_unit,
+        catalog["corn tortilla"].default_quantity,
+    ) == ("count", 12)
+    assert (
+        catalog["bottled water"].default_unit,
+        catalog["bottled water"].default_quantity,
+    ) == ("count", 6)
 
 
 def test_honeycrisp_apples_match_the_product_spec() -> None:
     apples = UNIVERSAL_PRODUCTS[0]
 
     assert apples.name == "Honeycrisp Apples"
-    assert apples.tags == ("honeycrisp apple", "apple", "fruit")
+    assert apples.tag_names == ("honeycrisp apple", "apple", "fruit")
     assert apples.unit == "lbs"
     assert apples.base_price == 1.99
     assert apples.quantity == 1.0
+    assert apples.modifiers == ("origin: washington",)
+
+
+def test_product_modifiers_reflect_season_and_current_sale() -> None:
+    peaches = next(
+        product for product in SPECIALTY_PRODUCTS if product.name == "Yellow Peaches"
+    )
+    current_price = generate_price_history(
+        peaches,
+        store_index=3,
+        as_of=date(2026, 7, 24),
+        seed=1234,
+    )[-1]
+
+    assert generate_modifiers(peaches, current_price) == (
+        "in season",
+        *(() if not current_price.sale else ("on sale",)),
+    )
 
 
 def test_cli_uses_cartograph_database_environment_variable(
@@ -141,6 +188,7 @@ def test_seed_database_writes_expected_rows_and_relationships(tmp_path: object) 
     stats = seed_database(database_path, as_of=date(2026, 7, 24), seed=1234)
 
     assert stats.stores == 10
+    assert stats.tags == 137
     assert stats.products == 400
     assert stats.price_histories == 124_400
 
@@ -158,8 +206,51 @@ def test_seed_database_writes_expected_rows_and_relationships(tmp_path: object) 
         store_rows = connection.execute(
             "SELECT name, address FROM stores ORDER BY id"
         ).fetchall()
-        product_tag_count = connection.execute(
-            "SELECT COUNT(*) FROM product_tags"
+        tag_product_count = connection.execute(
+            "SELECT COUNT(*) FROM tag_products"
+        ).fetchone()[0]
+        tag_rows = connection.execute(
+            "SELECT tag, default_unit, default_quantity FROM tags ORDER BY tag"
+        ).fetchall()
+        uncovered_tag_product_count = connection.execute(
+            """
+            SELECT COUNT(*)
+            FROM tag_products AS tag_product
+            LEFT JOIN tags AS tag ON tag.tag = tag_product.tag
+            WHERE tag.tag IS NULL
+            """
+        ).fetchone()[0]
+        modifier_count = connection.execute(
+            "SELECT COUNT(*) FROM product_modifiers"
+        ).fetchone()[0]
+        distinct_modifiers = {
+            row["modifier"]
+            for row in connection.execute(
+                "SELECT DISTINCT modifier FROM product_modifiers"
+            )
+        }
+        sale_modifier_mismatches = connection.execute(
+            """
+            SELECT COUNT(*)
+            FROM products AS product
+            WHERE product.current_price_sale != EXISTS (
+                SELECT 1 FROM product_modifiers AS modifier
+                WHERE modifier.product_id = product.id
+                  AND modifier.modifier = 'on sale'
+            )
+            """
+        ).fetchone()[0]
+        invalid_modifier_positions = connection.execute(
+            """
+            SELECT COUNT(*)
+            FROM (
+                SELECT product_id, COUNT(*) AS modifier_count,
+                       MAX(position) AS maximum_position
+                FROM product_modifiers
+                GROUP BY product_id
+            )
+            WHERE maximum_position != modifier_count - 1
+            """
         ).fetchone()[0]
         histories_per_product = {
             row["history_count"]
@@ -174,12 +265,12 @@ def test_seed_database_writes_expected_rows_and_relationships(tmp_path: object) 
             row["tag"]
             for row in connection.execute(
                 """
-                SELECT tag FROM product_tags
+                SELECT tag FROM tag_products
                 WHERE product_id = (
                     SELECT id FROM products
                     WHERE name = 'Honeycrisp Apples' AND store_id = 1
                 )
-                ORDER BY position
+                ORDER BY tag
                 """
             )
         ]
@@ -187,12 +278,12 @@ def test_seed_database_writes_expected_rows_and_relationships(tmp_path: object) 
             row["tag"]
             for row in connection.execute(
                 """
-                SELECT tag FROM product_tags
+                SELECT tag FROM tag_products
                 WHERE product_id = (
                     SELECT id FROM products
                     WHERE name = 'Ground Beef 80/20' AND store_id = 1
                 )
-                ORDER BY position
+                ORDER BY tag
                 """
             )
         ]
@@ -269,10 +360,25 @@ def test_seed_database_writes_expected_rows_and_relationships(tmp_path: object) 
     assert [(row["name"], row["address"]) for row in store_rows] == [
         (store.name, store.address) for store in STORES
     ]
-    assert product_tag_count == 1_207
+    assert tag_product_count == 1_207
+    assert len(tag_rows) == 137
+    assert uncovered_tag_product_count == 0
+    assert modifier_count > 0
+    assert {"origin: washington", "in season", "on sale"} <= distinct_modifiers
+    assert sale_modifier_mismatches == 0
+    assert invalid_modifier_positions == 0
+    assert {
+        row["tag"]: (row["default_unit"], row["default_quantity"])
+        for row in tag_rows
+        if row["tag"] in {"egg", "corn tortilla", "bottled water"}
+    } == {
+        "egg": ("count", 6.0),
+        "corn tortilla": ("count", 12.0),
+        "bottled water": ("count", 6.0),
+    }
     assert histories_per_product == {311}
-    assert honeycrisp_tags == ["honeycrisp apple", "apple", "fruit"]
-    assert ground_beef_tags == ["ground beef", "beef", "meat", "protein"]
+    assert set(honeycrisp_tags) == {"honeycrisp apple", "apple", "fruit"}
+    assert set(ground_beef_tags) == {"ground beef", "beef", "meat", "protein"}
     assert set(universal_store_counts.values()) == {10}
     assert len(universal_store_counts) == 20
     assert len(specialty_store_counts) == 60
@@ -314,3 +420,33 @@ def test_seed_database_writes_expected_rows_and_relationships(tmp_path: object) 
 
     with pytest.raises(SeedDataExistsError):
         seed_database(database_path, as_of=date(2026, 7, 24), seed=1234)
+
+
+def test_seed_reset_cleanup_removes_shopping_lists_before_tags(
+    tmp_path: object,
+) -> None:
+    database_path = tmp_path / "seed-reset.db"  # type: ignore[operator]
+    initialize_database(database_path)
+    connection = connect_database(database_path)
+    try:
+        connection.execute("INSERT INTO tags VALUES ('milk', 'gallon', 1)")
+        connection.execute(
+            "INSERT INTO shopping_lists (id, name) VALUES (1, 'Weekly')"
+        )
+        connection.execute(
+            """
+            INSERT INTO shopping_list_items
+                (shopping_list_id, position, tag, unit, quantity)
+            VALUES (1, 0, 'milk', 'gallon', 1)
+            """
+        )
+
+        with transaction(connection):
+            _clear_domain_data(connection)
+
+        assert connection.execute("SELECT COUNT(*) FROM shopping_lists").fetchone()[0] == 0
+        assert connection.execute("SELECT COUNT(*) FROM shopping_list_items").fetchone()[0] == 0
+        assert connection.execute("SELECT COUNT(*) FROM tags").fetchone()[0] == 0
+        assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
+    finally:
+        connection.close()

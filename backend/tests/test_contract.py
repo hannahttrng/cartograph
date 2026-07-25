@@ -23,6 +23,8 @@ from backend.resolvers import (
     get_shopping_list,
     initialize_database,
     is_product_route_eligible,
+    list_tag_modifiers,
+    list_tags,
     list_shopping_lists,
     publish_shopping_list_routes,
     record_product_price,
@@ -113,6 +115,7 @@ def test_tag_normalizes_defaults_and_serializes_aliases() -> None:
         tag=" Ground Beef ",
         defaultUnit=" POUND ",
         defaultQuantity=1.5,
+        products=[20, 10],
     )
 
     assert tag.tag == "ground beef"
@@ -122,7 +125,18 @@ def test_tag_normalizes_defaults_and_serializes_aliases() -> None:
         "tag": "ground beef",
         "defaultUnit": "pound",
         "defaultQuantity": 1.5,
+        "products": [10, 20],
     }
+
+
+def test_tag_rejects_duplicate_products() -> None:
+    with pytest.raises(ValidationError, match="products must not contain duplicates"):
+        Tag(
+            tag="milk",
+            defaultUnit="gallon",
+            defaultQuantity=1,
+            products=[10, 10],
+        )
 
 
 @pytest.mark.parametrize(
@@ -178,13 +192,13 @@ def test_price_rejects_zero_quantity() -> None:
 def test_product_name_is_trimmed_while_other_text_is_normalized() -> None:
     product = ProductCreate(
         name="  Trader Joe's Organic Milk  ",
-        tags=[" Plant Based ", "ORGANIC"],
+        modifiers=[" Plant Based ", "ORGANIC"],
         store=1,
         unit=" GALLON ",
     )
 
     assert product.name == "Trader Joe's Organic Milk"
-    assert product.tags == ["plant based", "organic"]
+    assert product.modifiers == ["plant based", "organic"]
     assert product.unit == "gallon"
 
 
@@ -200,7 +214,7 @@ def test_store_name_and_address_are_trimmed_with_capitalization_preserved() -> N
 
 def test_display_text_must_not_be_blank() -> None:
     with pytest.raises(ValidationError, match="name must not be blank"):
-        ProductCreate(name="   ", tags=["dairy"], store=1, unit="gallon")
+        ProductCreate(name="   ", modifiers=["organic"], store=1, unit="gallon")
 
     with pytest.raises(ValidationError, match="name must not be blank"):
         StoreCreate(name="   ", address="1 main st")
@@ -209,11 +223,11 @@ def test_display_text_must_not_be_blank() -> None:
         StoreCreate(name="Market", address="   ")
 
 
-def test_product_rejects_duplicate_tags_after_normalization() -> None:
-    with pytest.raises(ValidationError, match="tags must not contain duplicates"):
+def test_product_rejects_duplicate_modifiers_after_normalization() -> None:
+    with pytest.raises(ValidationError, match="modifiers must not contain duplicates"):
         ProductCreate(
             name="Milk",
-            tags=[" Plant Based ", "plant based"],
+            modifiers=[" Plant Based ", "plant based"],
             store=1,
             unit="gallon",
         )
@@ -222,32 +236,49 @@ def test_product_rejects_duplicate_tags_after_normalization() -> None:
 def test_shopping_list_contract_normalizes_client_managed_fields() -> None:
     create_request = ShoppingListCreate(
         name="  Weekly Shop  ",
-        tags=[" Plant Based ", "plant based", "ORGANIC"],
+        items=[
+            {"tag": " Milk ", "modifiers": [" ORGANIC "]},
+            {"tag": "Bread", "unit": " LOAF ", "quantity": 2},
+        ],
     )
-    replace_request = ShoppingListReplace(name="  Renamed  ", tags=[])
+    replace_request = ShoppingListReplace(name="  Renamed  ", items=[])
 
     assert create_request.name == "Weekly Shop"
     assert create_request.active is True
-    assert create_request.tags == {"plant based", "organic"}
+    assert [item.tag for item in create_request.items] == ["milk", "bread"]
+    assert create_request.items[0].modifiers == ["organic"]
+    assert create_request.items[0].unit is None
+    assert create_request.items[1].unit == "loaf"
     assert replace_request.name == "Renamed"
     assert replace_request.active is True
-    assert replace_request.tags == set()
-    assert ShoppingListCreate(tags=[]).name is None
+    assert replace_request.items == []
+    assert ShoppingListCreate(items=[]).name is None
     assert ShoppingListNameUpdate(name="  Renamed Again  ").name == "Renamed Again"
 
 
 def test_shopping_list_contract_rejects_invalid_text_and_missing_fields() -> None:
     with pytest.raises(ValidationError, match="name must not be blank"):
-        ShoppingListCreate(name="   ", tags=[])
+        ShoppingListCreate(name="   ", items=[])
 
     with pytest.raises(ValidationError, match="tag must not be blank"):
-        ShoppingListCreate(tags=["   "])
+        ShoppingListCreate(items=[{"tag": "   "}])
+
+    with pytest.raises(ValidationError, match="item tags must not contain duplicates"):
+        ShoppingListCreate(items=[{"tag": " Milk "}, {"tag": "milk"}])
+
+    with pytest.raises(ValidationError, match="modifiers must not contain duplicates"):
+        ShoppingListCreate(
+            items=[{"tag": "milk", "modifiers": [" Organic ", "organic"]}]
+        )
 
     with pytest.raises(ValidationError):
         ShoppingListCreate()  # type: ignore[call-arg]
 
     with pytest.raises(ValidationError):
-        ShoppingListReplace(tags=[])  # type: ignore[call-arg]
+        ShoppingListReplace(items=[])  # type: ignore[call-arg]
+
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        ShoppingListCreate(items=[], tags=[])  # type: ignore[call-arg]
 
 
 def test_shopping_list_contract_keeps_routes_server_managed_and_ordered() -> None:
@@ -255,7 +286,7 @@ def test_shopping_list_contract_keeps_routes_server_managed_and_ordered() -> Non
         id=1,
         name="New List 1",
         active=False,
-        tags={"milk"},
+        items=[{"tag": "milk", "unit": "gallon", "quantity": 1}],
         routes=[20, 10],
         status=ShoppingListStatus.READY,
     )
@@ -268,7 +299,7 @@ def test_shopping_list_contract_keeps_routes_server_managed_and_ordered() -> Non
         ShoppingList(
             id=1,
             name="New List 1",
-            tags=set(),
+            items=[],
             routes=[10, 10],
             status=ShoppingListStatus.READY,
         )
@@ -279,7 +310,7 @@ def test_shopping_list_contract_keeps_routes_server_managed_and_ordered() -> Non
         ShoppingList(
             id=1,
             name="New List 1",
-            tags=set(),
+            items=[],
             routes=[10],
             status=ShoppingListStatus.COMPUTING,
         )
@@ -289,7 +320,7 @@ def test_product_current_price_is_independent_from_history() -> None:
     product = Product(
         id=1,
         name="Milk",
-        tags=["dairy"],
+        modifiers=["organic"],
         store=10,
         unit="gallon",
         priceHistory=[
@@ -317,7 +348,7 @@ def test_product_rejects_history_at_or_after_current_price(current_date: float) 
         Product(
             id=1,
             name="Milk",
-            tags=["dairy"],
+            modifiers=["organic"],
             store=10,
             unit="gallon",
             priceHistory=[{"date": 100, "price": 3.75, "quantity": 1}],
@@ -329,7 +360,7 @@ def test_product_without_history_has_no_current_price() -> None:
     product = Product(
         id=1,
         name="Milk",
-        tags=["dairy"],
+        modifiers=[],
         store=10,
         unit="gallon",
     )
@@ -342,7 +373,7 @@ def test_product_history_does_not_imply_a_current_price() -> None:
     product = Product(
         id=1,
         name="Milk",
-        tags=["dairy"],
+        modifiers=[],
         store=10,
         unit="gallon",
         priceHistory=[{"date": 100, "price": 3.75, "quantity": 1}],
@@ -355,7 +386,7 @@ def test_only_products_with_current_prices_are_route_eligible() -> None:
     product = Product(
         id=1,
         name="Milk",
-        tags=["dairy"],
+        modifiers=[],
         store=10,
         unit="gallon",
         priceHistory=[{"date": 100, "price": 3.75, "quantity": 1}],
@@ -373,7 +404,7 @@ def test_product_rejects_duplicate_price_history_dates() -> None:
         Product(
             id=1,
             name="Milk",
-            tags=["dairy"],
+            modifiers=[],
             store=10,
             unit="gallon",
             priceHistory=[
@@ -383,10 +414,16 @@ def test_product_rejects_duplicate_price_history_dates() -> None:
         )
 
 
-def test_route_create_normalizes_and_collapses_duplicate_tags() -> None:
-    request = RouteCreate(tags=[" Ground Beef ", "Bread", "ground beef"])
+def test_route_create_normalizes_ordered_items() -> None:
+    request = RouteCreate(
+        items=[
+            {"tag": " Ground Beef ", "unit": " POUND ", "quantity": 1},
+            {"tag": "Bread", "unit": "loaf", "quantity": 2},
+        ]
+    )
 
-    assert request.tags == ["ground beef", "bread"]
+    assert [item.tag for item in request.items] == ["ground beef", "bread"]
+    assert request.items[0].unit == "pound"
 
 
 def test_complete_route_keeps_explicit_relationships() -> None:
@@ -394,20 +431,21 @@ def test_complete_route_keeps_explicit_relationships() -> None:
         id=1,
         stores=[20, 10],
         products=[200, 100],
-        productTags={200: [" Bread "], 100: [" Ground Beef "]},
         selections=[
-            {"tag": " GROUND BEEF ", "product": 100},
-            {"tag": "BREAD", "product": 200},
+            {
+                "tag": " GROUND BEEF ",
+                "unit": "pound",
+                "quantity": 1,
+                "product": 100,
+            },
+            {"tag": "BREAD", "unit": "loaf", "quantity": 1, "product": 200},
         ],
         distance=1500,
         time=600,
         score=0.75,
     )
 
-    assert route.model_dump(by_alias=True)["productTags"] == {
-        200: ["bread"],
-        100: ["ground beef"],
-    }
+    assert "productTags" not in route.model_dump(by_alias=True)
     assert [selection.tag for selection in route.selections] == [
         "ground beef",
         "bread",
@@ -420,15 +458,14 @@ def test_partial_route_preserves_unmatched_tags() -> None:
         id=1,
         stores=[10],
         products=[100],
-        productTags={100: ["milk"]},
         selections=[
-            {"tag": "milk", "product": 100},
-            {"tag": "bread", "product": None},
+            {"tag": "milk", "unit": "gallon", "quantity": 1, "product": 100},
+            {"tag": "bread", "unit": "loaf", "quantity": 1, "product": None},
         ],
         distance=0,
         time=0,
         score=0,
-        errorCode=RouteErrorCode.PARTIAL_TAG_MATCH,
+        errorCode=RouteErrorCode.PARTIAL_ITEM_MATCH,
     )
 
     assert route.selections[1].product is None
@@ -439,25 +476,27 @@ def test_empty_partial_route_requires_zero_metrics() -> None:
         id=1,
         stores=[],
         products=[],
-        productTags={},
-        selections=[{"tag": "unavailable", "product": None}],
+        selections=[
+            {"tag": "unavailable", "unit": "each", "quantity": 1, "product": None}
+        ],
         distance=0,
         time=0,
         score=0,
-        errorCode="PARTIAL_TAG_MATCH",
+        errorCode="PARTIAL_ITEM_MATCH",
     )
 
     assert route.products == []
 
 
-def test_route_rejects_inconsistent_product_mapping() -> None:
-    with pytest.raises(ValidationError, match="productTags keys must match products"):
+def test_route_rejects_inconsistent_product_assignments() -> None:
+    with pytest.raises(ValidationError, match="matched selections must match products"):
         Route(
             id=1,
             stores=[10],
-            products=[100],
-            productTags={200: ["milk"]},
-            selections=[{"tag": "milk", "product": 100}],
+            products=[200],
+            selections=[
+                {"tag": "milk", "unit": "gallon", "quantity": 1, "product": 100}
+            ],
             distance=0,
             time=0,
             score=0,
@@ -481,15 +520,26 @@ def _partial_route_candidate() -> RouteCandidate:
     return RouteCandidate(
         stores=[10],
         products=[100],
-        productTags={100: ["milk"]},
         selections=[
-            {"tag": "bread", "product": None},
-            {"tag": "milk", "product": 100},
+            {
+                "tag": "bread",
+                "modifiers": ["sliced"],
+                "unit": "loaf",
+                "quantity": 1,
+                "product": None,
+            },
+            {
+                "tag": "milk",
+                "modifiers": [],
+                "unit": "gallon",
+                "quantity": 2,
+                "product": 100,
+            },
         ],
         distance=2.5,
         time=6,
         productPrice=4.25,
-        matchedTagCount=1,
+        matchedItemCount=1,
         score=10.5,
         scoreComponents={
             "productPrice": 4.25,
@@ -497,7 +547,7 @@ def _partial_route_candidate() -> RouteCandidate:
             "timeCost": 2.0,
             "storeCost": 2.5,
         },
-        errorCode="PARTIAL_TAG_MATCH",
+        errorCode="PARTIAL_ITEM_MATCH",
     )
 
 
@@ -506,7 +556,14 @@ def test_route_candidate_keeps_explainable_transient_result() -> None:
     payload = candidate.model_dump(by_alias=True)
 
     assert "id" not in payload
-    assert payload["matchedTagCount"] == 1
+    assert payload["matchedItemCount"] == 1
+    assert payload["selections"][0] == {
+        "tag": "bread",
+        "modifiers": ["sliced"],
+        "unit": "loaf",
+        "quantity": 1.0,
+        "product": None,
+    }
     assert payload["scoreComponents"] == {
         "productPrice": 4.25,
         "distanceCost": 1.75,
@@ -515,7 +572,7 @@ def test_route_candidate_keeps_explainable_transient_result() -> None:
     }
 
 
-def test_route_candidate_rejects_inconsistent_score_and_selection_order() -> None:
+def test_route_candidate_rejects_inconsistent_score() -> None:
     with pytest.raises(ValidationError, match="score must equal"):
         _partial_route_candidate().model_copy(update={"score": 10.51}, deep=True).__class__(
             **{
@@ -523,12 +580,6 @@ def test_route_candidate_rejects_inconsistent_score_and_selection_order() -> Non
                 "score": 10.51,
             }
         )
-
-    payload = _partial_route_candidate().model_dump(by_alias=True)
-    payload["selections"] = list(reversed(payload["selections"]))
-    with pytest.raises(ValidationError, match="ordered by tag"):
-        RouteCandidate(**payload)
-
 
 def test_route_optimization_response_validates_proven_prefix() -> None:
     response = RouteOptimizationResponse(
@@ -552,6 +603,26 @@ def test_route_optimization_response_validates_proven_prefix() -> None:
             timeoutSeconds=5,
         )
 
+    heuristic = RouteOptimizationResponse(
+        candidates=[_partial_route_candidate()],
+        status="HEURISTIC",
+        requestedLimit=10,
+        provenPrefixCount=0,
+        elapsedSeconds=0.1,
+        timeoutSeconds=5,
+    )
+    assert heuristic.status == RouteOptimizationStatus.HEURISTIC
+
+    with pytest.raises(ValidationError, match="cannot claim proven candidates"):
+        RouteOptimizationResponse(
+            candidates=[_partial_route_candidate()],
+            status="HEURISTIC",
+            requestedLimit=10,
+            provenPrefixCount=1,
+            elapsedSeconds=0.1,
+            timeoutSeconds=5,
+        )
+
 
 def test_database_initialization_is_idempotent(tmp_path: object) -> None:
     database_path = tmp_path / "contract.db"  # type: ignore[operator]
@@ -572,18 +643,160 @@ def test_database_initialization_is_idempotent(tmp_path: object) -> None:
         connection.close()
 
     assert tables == {
+        "tags",
         "stores",
         "products",
-        "product_tags",
+        "tag_products",
+        "product_modifiers",
         "price_history",
         "shopping_lists",
-        "shopping_list_tags",
+        "shopping_list_items",
+        "shopping_list_item_modifiers",
         "routes",
         "route_stores",
-        "route_tag_selections",
+        "route_item_selections",
+        "route_item_selection_modifiers",
         "shopping_list_routes",
     }
     assert foreign_keys_enabled == 1
+
+
+def test_initialization_migrates_product_tags_without_overwriting_defaults(
+    tmp_path: object,
+) -> None:
+    database_path = tmp_path / "tag-catalog-migration.db"  # type: ignore[operator]
+    initialize_database(database_path)
+    connection = connect_database(database_path)
+    try:
+        connection.execute(
+            "INSERT INTO stores (id, name, address) VALUES (1, 'Market', '1 Main St')"
+        )
+        connection.execute(
+            """
+            INSERT INTO products (id, name, store_id, unit)
+            VALUES (1, 'Apples', 1, 'lbs')
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE product_tags (
+                product_id INTEGER NOT NULL,
+                tag TEXT NOT NULL CHECK (length(trim(tag)) > 0),
+                position INTEGER NOT NULL CHECK (position >= 0),
+                PRIMARY KEY (product_id, tag),
+                UNIQUE (product_id, position),
+                FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+            )
+            """
+        )
+        connection.executemany(
+            """
+            INSERT INTO product_tags (product_id, tag, position)
+            VALUES (?, ?, ?)
+            """,
+            [(1, " Apple ", 0), (1, "apple", 1), (1, "fruit", 2)],
+        )
+        connection.execute(
+            """
+            INSERT INTO tags (tag, default_unit, default_quantity)
+            VALUES ('fruit', 'count', 2)
+            """
+        )
+    finally:
+        connection.close()
+
+    initialize_database(database_path)
+    initialize_database(database_path)
+
+    connection = connect_database(database_path)
+    try:
+        tags = {
+            row["tag"]: (row["default_unit"], row["default_quantity"])
+            for row in connection.execute(
+                "SELECT tag, default_unit, default_quantity FROM tags"
+            )
+        }
+        relationships = [
+            (row["tag"], row["product_id"])
+            for row in connection.execute(
+                "SELECT tag, product_id FROM tag_products ORDER BY tag, product_id"
+            )
+        ]
+        legacy_table_exists = connection.execute(
+            """
+            SELECT 1 FROM sqlite_master
+            WHERE type = 'table' AND name = 'product_tags'
+            """
+        ).fetchone()
+        modifier_count = connection.execute(
+            "SELECT COUNT(*) FROM product_modifiers"
+        ).fetchone()[0]
+        foreign_key_violations = connection.execute("PRAGMA foreign_key_check").fetchall()
+    finally:
+        connection.close()
+
+    assert tags == {"apple": ("lbs", 1.0), "fruit": ("count", 2.0)}
+    assert relationships == [("apple", 1), ("fruit", 1)]
+    assert legacy_table_exists is None
+    assert modifier_count == 0
+    assert foreign_key_violations == []
+
+
+def test_tag_memberships_and_product_modifiers_enforce_schema_invariants(
+    tmp_path: object,
+) -> None:
+    database_path = tmp_path / "catalog-relationships.db"  # type: ignore[operator]
+    initialize_database(database_path)
+    connection = connect_database(database_path)
+    try:
+        connection.execute(
+            "INSERT INTO tags (tag, default_unit, default_quantity) VALUES ('milk', 'gallon', 1)"
+        )
+        connection.execute(
+            "INSERT INTO stores (id, name, address) VALUES (1, 'Market', '1 Main St')"
+        )
+        connection.execute(
+            "INSERT INTO products (id, name, store_id, unit) VALUES (10, 'Milk', 1, 'gallon')"
+        )
+        connection.execute(
+            "INSERT INTO tag_products (tag, product_id) VALUES ('milk', 10)"
+        )
+        connection.executemany(
+            """
+            INSERT INTO product_modifiers (product_id, modifier, position)
+            VALUES (?, ?, ?)
+            """,
+            [(10, "organic", 0), (10, "lactose free", 1)],
+        )
+
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                "INSERT INTO tag_products (tag, product_id) VALUES ('missing', 10)"
+            )
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                """
+                INSERT INTO product_modifiers (product_id, modifier, position)
+                VALUES (10, ' Organic ', 2)
+                """
+            )
+
+        connection.execute("DELETE FROM tags WHERE tag = 'milk'")
+        assert connection.execute("SELECT COUNT(*) FROM tag_products").fetchone()[0] == 0
+        assert connection.execute("SELECT COUNT(*) FROM product_modifiers").fetchone()[0] == 2
+
+        connection.execute(
+            "INSERT INTO tags (tag, default_unit, default_quantity) VALUES ('milk', 'gallon', 1)"
+        )
+        connection.execute(
+            "INSERT INTO tag_products (tag, product_id) VALUES ('milk', 10)"
+        )
+        connection.execute("DELETE FROM products WHERE id = 10")
+        assert connection.execute("SELECT COUNT(*) FROM tag_products").fetchone()[0] == 0
+        assert connection.execute("SELECT COUNT(*) FROM product_modifiers").fetchone()[0] == 0
+        assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
+    finally:
+        connection.close()
 
 
 def test_shopping_list_schema_enforces_status_and_route_ownership(
@@ -597,7 +810,14 @@ def test_shopping_list_schema_enforces_status_and_route_ownership(
             "INSERT INTO shopping_lists (id, name) VALUES (1, 'New List 1')"
         )
         connection.execute(
-            "INSERT INTO shopping_list_tags (shopping_list_id, tag) VALUES (1, 'milk')"
+            "INSERT INTO tags VALUES ('milk', 'gallon', 1)"
+        )
+        connection.execute(
+            """
+            INSERT INTO shopping_list_items
+                (shopping_list_id, position, tag, unit, quantity)
+            VALUES (1, 0, 'milk', 'gallon', 1)
+            """
         )
         connection.execute(
             "INSERT INTO routes (id, distance, time, score) VALUES (10, 0, 0, 0)"
@@ -681,23 +901,141 @@ def test_shopping_list_active_column_migrates_existing_rows(tmp_path: object) ->
     assert migrated == 1
 
 
+def test_initialization_migrates_legacy_list_tags_and_invalidates_routes(
+    tmp_path: object,
+) -> None:
+    database_path = tmp_path / "shopping-list-items-migration.db"  # type: ignore[operator]
+    connection = sqlite3.connect(database_path)
+    try:
+        connection.executescript(
+            """
+            CREATE TABLE tags (
+                tag TEXT PRIMARY KEY,
+                default_unit TEXT NOT NULL,
+                default_quantity REAL NOT NULL
+            );
+            CREATE TABLE shopping_lists (
+                id INTEGER PRIMARY KEY,
+                name TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'PENDING',
+                active INTEGER NOT NULL DEFAULT 1,
+                revision INTEGER NOT NULL DEFAULT 1
+            );
+            CREATE TABLE shopping_list_tags (
+                shopping_list_id INTEGER NOT NULL,
+                tag TEXT NOT NULL,
+                PRIMARY KEY (shopping_list_id, tag)
+            );
+            CREATE TABLE routes (
+                id INTEGER PRIMARY KEY,
+                distance REAL NOT NULL,
+                time REAL NOT NULL,
+                score REAL NOT NULL,
+                error_code TEXT CHECK (
+                    error_code IS NULL OR error_code IN ('PARTIAL_TAG_MATCH')
+                )
+            );
+            CREATE TABLE route_stores (
+                route_id INTEGER NOT NULL,
+                store_id INTEGER NOT NULL,
+                position INTEGER NOT NULL,
+                PRIMARY KEY (route_id, store_id)
+            );
+            CREATE TABLE route_tag_selections (
+                route_id INTEGER NOT NULL,
+                requested_tag TEXT NOT NULL,
+                position INTEGER NOT NULL,
+                product_id INTEGER,
+                PRIMARY KEY (route_id, requested_tag)
+            );
+            CREATE TABLE shopping_list_routes (
+                shopping_list_id INTEGER NOT NULL,
+                route_id INTEGER PRIMARY KEY,
+                position INTEGER NOT NULL
+            );
+            INSERT INTO tags VALUES ('milk', 'gallon', 2);
+            INSERT INTO shopping_lists VALUES
+                (1, 'Owned', 'READY', 1, 4),
+                (2, 'Failed', 'FAILED', 1, 7);
+            INSERT INTO shopping_list_tags VALUES
+                (1, 'milk'), (1, 'bread'), (2, 'orphan');
+            INSERT INTO routes VALUES (9, 1, 2, 3, NULL);
+            INSERT INTO shopping_list_routes VALUES (1, 9, 0);
+            """
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    initialize_database(database_path)
+    initialize_database(database_path)
+
+    connection = connect_database(database_path)
+    try:
+        items = [
+            tuple(row)
+            for row in connection.execute(
+                """
+                SELECT shopping_list_id, position, tag, unit, quantity
+                FROM shopping_list_items
+                ORDER BY shopping_list_id, position
+                """
+            )
+        ]
+        states = [
+            tuple(row)
+            for row in connection.execute(
+                "SELECT id, status, revision FROM shopping_lists ORDER BY id"
+            )
+        ]
+        tables = {
+            row["name"]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+        route_count = connection.execute("SELECT COUNT(*) FROM routes").fetchone()[0]
+        foreign_key_violations = connection.execute(
+            "PRAGMA foreign_key_check"
+        ).fetchall()
+    finally:
+        connection.close()
+
+    assert items == [
+        (1, 0, "bread", "count", 1.0),
+        (1, 1, "milk", "gallon", 2.0),
+        (2, 0, "orphan", "count", 1.0),
+    ]
+    assert states == [(1, "PENDING", 5), (2, "FAILED", 7)]
+    assert route_count == 0
+    assert "shopping_list_tags" not in tables
+    assert "route_tag_selections" not in tables
+    assert {"shopping_list_items", "route_item_selections"} <= tables
+    assert foreign_key_violations == []
+
+
 def test_shopping_list_persistence_manages_names_and_crud(tmp_path: object) -> None:
     database_path = tmp_path / "shopping-list-crud.db"  # type: ignore[operator]
     initialize_database(database_path)
     connection = connect_database(database_path)
     try:
+        connection.executemany(
+            "INSERT INTO tags VALUES (?, ?, ?)",
+            [("milk", "gallon", 1), ("bread", "loaf", 1)],
+        )
         first = create_shopping_list(
-            connection, ShoppingListCreate(tags={" Milk "}, active=False)
+            connection, ShoppingListCreate(items=[{"tag": " Milk "}], active=False)
         )
         custom = create_shopping_list(
             connection,
-            ShoppingListCreate(name="  Weekend  ", tags=set()),
+            ShoppingListCreate(name="  Weekend  ", items=[]),
         )
-        second = create_shopping_list(connection, ShoppingListCreate(tags=set()))
+        second = create_shopping_list(connection, ShoppingListCreate(items=[]))
 
         assert first.name == "New List 1"
         assert first.active is False
-        assert first.tags == {"milk"}
+        assert [item.tag for item in first.items] == ["milk"]
+        assert first.items[0].unit == "gallon"
         assert first.routes == []
         assert first.status == ShoppingListStatus.PENDING
         assert custom.name == "Weekend"
@@ -710,7 +1048,7 @@ def test_shopping_list_persistence_manages_names_and_crud(tmp_path: object) -> N
 
         assert delete_shopping_list(connection, first.id)
         replacement = create_shopping_list(
-            connection, ShoppingListCreate(tags=set())
+            connection, ShoppingListCreate(items=[])
         )
         assert replacement.name == "New List 1"
         assert get_shopping_list(connection, first.id) is None
@@ -718,7 +1056,7 @@ def test_shopping_list_persistence_manages_names_and_crud(tmp_path: object) -> N
         assert replace_shopping_list(
             connection,
             999,
-            ShoppingListReplace(name="Missing", tags=set(), active=False),
+            ShoppingListReplace(name="Missing", items=[], active=False),
         ) is None
         assert update_shopping_list_name(
             connection, 999, ShoppingListNameUpdate(name="Missing")
@@ -734,14 +1072,18 @@ def test_shopping_list_persistence_invalidates_only_tag_changes(
     initialize_database(database_path)
     connection = connect_database(database_path)
     try:
+        connection.executemany(
+            "INSERT INTO tags VALUES (?, ?, ?)",
+            [("milk", "gallon", 1), ("bread", "loaf", 1)],
+        )
         created = create_shopping_list(
-            connection, ShoppingListCreate(tags={"milk"})
+            connection, ShoppingListCreate(items=[{"tag": "milk"}])
         )
         claim = claim_pending_shopping_list(connection)
         assert claim is not None
         assert claim.id == created.id
         assert claim.revision == 1
-        assert claim.tags == {"milk"}
+        assert [item.tag for item in claim.items] == ["milk"]
 
         connection.executemany(
             "INSERT INTO routes (id, distance, time, score) VALUES (?, 0, 0, 0)",
@@ -754,7 +1096,7 @@ def test_shopping_list_persistence_invalidates_only_tag_changes(
         renamed = replace_shopping_list(
             connection,
             claim.id,
-            ShoppingListReplace(name="Renamed", tags={"milk"}, active=False),
+            ShoppingListReplace(name="Renamed", items=[{"tag": "milk"}], active=False),
         )
         assert renamed is not None
         assert renamed.name == "Renamed"
@@ -776,7 +1118,7 @@ def test_shopping_list_persistence_invalidates_only_tag_changes(
         assert name_updated is not None
         assert name_updated.name == "Display Name"
         assert name_updated.active is False
-        assert name_updated.tags == {"milk"}
+        assert [item.tag for item in name_updated.items] == ["milk"]
         assert name_updated.routes == [20, 10]
         assert name_updated.status == ShoppingListStatus.READY
         assert revision_after_name_update == revision_before_name_update
@@ -784,10 +1126,10 @@ def test_shopping_list_persistence_invalidates_only_tag_changes(
         updated = replace_shopping_list(
             connection,
             claim.id,
-            ShoppingListReplace(name="Renamed", tags={"bread"}, active=True),
+            ShoppingListReplace(name="Renamed", items=[{"tag": "bread"}], active=True),
         )
         assert updated is not None
-        assert updated.tags == {"bread"}
+        assert [item.tag for item in updated.items] == ["bread"]
         assert updated.active is True
         assert updated.routes == []
         assert updated.status == ShoppingListStatus.PENDING
@@ -856,18 +1198,20 @@ def test_route_schema_enforces_order_and_distinct_product_assignments(
         )
         connection.execute(
             """
-            INSERT INTO route_tag_selections
-                (route_id, requested_tag, position, product_id)
-            VALUES (1, 'milk', 0, 10)
+            INSERT INTO route_item_selections
+                (route_id, position, requested_tag, requested_unit,
+                 requested_quantity, product_id)
+            VALUES (1, 0, 'milk', 'each', 1, 10)
             """
         )
 
         with pytest.raises(sqlite3.IntegrityError):
             connection.execute(
                 """
-                INSERT INTO route_tag_selections
-                    (route_id, requested_tag, position, product_id)
-                VALUES (1, 'dairy', 1, 10)
+                INSERT INTO route_item_selections
+                    (route_id, position, requested_tag, requested_unit,
+                     requested_quantity, product_id)
+                VALUES (1, 1, 'dairy', 'each', 1, 10)
                 """
             )
 
@@ -876,18 +1220,20 @@ def test_route_schema_enforces_order_and_distinct_product_assignments(
         ):
             connection.execute(
                 """
-                INSERT INTO route_tag_selections
-                    (route_id, requested_tag, position, product_id)
-                VALUES (1, 'fruit', 2, 30)
+                INSERT INTO route_item_selections
+                    (route_id, position, requested_tag, requested_unit,
+                     requested_quantity, product_id)
+                VALUES (1, 2, 'fruit', 'each', 1, 30)
                 """
             )
 
         with pytest.raises(sqlite3.IntegrityError):
             connection.execute(
                 """
-                INSERT INTO route_tag_selections
-                    (route_id, requested_tag, position, product_id)
-                VALUES (1, 'bread', 0, 20)
+                INSERT INTO route_item_selections
+                    (route_id, position, requested_tag, requested_unit,
+                     requested_quantity, product_id)
+                VALUES (1, 0, 'bread', 'each', 1, 20)
                 """
             )
     finally:
@@ -1509,6 +1855,120 @@ def test_health_endpoint_initializes_database(tmp_path: object) -> None:
     assert database_path.exists()  # type: ignore[union-attr]
 
 
+def test_tag_endpoint_returns_empty_catalog(tmp_path: object) -> None:
+    database_path = tmp_path / "empty-tag-catalog.db"  # type: ignore[operator]
+
+    with TestClient(create_app(database_path)) as client:
+        response = client.get("/api/v1/tags")
+
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+def test_tag_endpoints_list_catalog_and_aggregate_product_modifiers(
+    tmp_path: object,
+) -> None:
+    database_path = tmp_path / "tag-catalog-api.db"  # type: ignore[operator]
+    initialize_database(database_path)
+    connection = connect_database(database_path)
+    try:
+        connection.executemany(
+            """
+            INSERT INTO tags (tag, default_unit, default_quantity)
+            VALUES (?, ?, ?)
+            """,
+            [
+                ("whole grain bread", "loaf", 1),
+                ("fruit", "lbs", 2),
+                ("empty", "count", 1),
+            ],
+        )
+        connection.execute(
+            "INSERT INTO stores (id, name, address) VALUES (1, 'Market', '1 Main St')"
+        )
+        connection.executemany(
+            """
+            INSERT INTO products (id, name, store_id, unit)
+            VALUES (?, ?, 1, ?)
+            """,
+            [
+                (20, "Seeded Bread", "loaf"),
+                (10, "Organic Bread", "loaf"),
+                (30, "Apples", "lbs"),
+            ],
+        )
+        connection.executemany(
+            "INSERT INTO tag_products (tag, product_id) VALUES (?, ?)",
+            [
+                ("whole grain bread", 20),
+                ("fruit", 30),
+                ("whole grain bread", 10),
+            ],
+        )
+        connection.executemany(
+            """
+            INSERT INTO product_modifiers (product_id, modifier, position)
+            VALUES (?, ?, ?)
+            """,
+            [
+                (10, "sliced", 1),
+                (10, "organic", 0),
+                (20, "gluten free", 1),
+                (20, "organic", 0),
+                (30, "ripe", 0),
+            ],
+        )
+
+        tags = [tag.model_dump(by_alias=True) for tag in list_tags(connection)]
+        modifiers = list_tag_modifiers(connection, "whole grain bread")
+        no_modifiers = list_tag_modifiers(connection, "empty")
+        missing = list_tag_modifiers(connection, "missing")
+    finally:
+        connection.close()
+
+    expected_tags = [
+        {
+            "tag": "empty",
+            "defaultUnit": "count",
+            "defaultQuantity": 1.0,
+            "products": [],
+        },
+        {
+            "tag": "fruit",
+            "defaultUnit": "lbs",
+            "defaultQuantity": 2.0,
+            "products": [30],
+        },
+        {
+            "tag": "whole grain bread",
+            "defaultUnit": "loaf",
+            "defaultQuantity": 1.0,
+            "products": [10, 20],
+        },
+    ]
+    assert tags == expected_tags
+    assert modifiers == ["gluten free", "organic", "sliced"]
+    assert no_modifiers == []
+    assert missing is None
+
+    with TestClient(create_app(database_path)) as client:
+        collection_response = client.get("/api/v1/tags")
+        modifier_response = client.get(
+            "/api/v1/tags/whole%20grain%20bread/modifiers"
+        )
+        empty_response = client.get("/api/v1/tags/empty/modifiers")
+        missing_response = client.get("/api/v1/tags/missing/modifiers")
+
+    assert collection_response.status_code == 200
+    assert collection_response.json() == expected_tags
+    assert modifier_response.status_code == 200
+    assert modifier_response.json() == ["gluten free", "organic", "sliced"]
+    assert empty_response.status_code == 200
+    assert empty_response.json() == []
+    assert missing_response.status_code == 404
+    assert missing_response.json() == {"detail": "Tag not found"}
+
+
 def test_recipe_import_endpoint_returns_validated_grocery_items(tmp_path: object) -> None:
     database_path = tmp_path / "recipe-import.db"  # type: ignore[operator]
     application = create_app(
@@ -1581,16 +2041,32 @@ def test_carter_chat_endpoint_returns_provider_answer(tmp_path: object) -> None:
 
 def test_shopping_list_endpoints_support_crud(tmp_path: object) -> None:
     database_path = tmp_path / "shopping-list-api.db"  # type: ignore[operator]
+    initialize_database(database_path)
+    connection = connect_database(database_path)
+    try:
+        connection.execute("INSERT INTO tags VALUES ('milk', 'gallon', 1)")
+    finally:
+        connection.close()
 
     with TestClient(create_app(database_path)) as client:
         created_response = client.post(
             "/api/v1/shopping-lists",
-            json={"tags": [" Milk ", "milk", "ORGANIC"], "active": False},
+            json={
+                "items": [{"tag": " Milk ", "modifiers": ["ORGANIC"]}],
+                "active": False,
+            },
         )
         assert created_response.status_code == 201
         created = created_response.json()
         assert created["name"] == "New List 1"
-        assert set(created["tags"]) == {"milk", "organic"}
+        assert created["items"] == [
+            {
+                "tag": "milk",
+                "modifiers": ["organic"],
+                "unit": "gallon",
+                "quantity": 1.0,
+            }
+        ]
         assert created["active"] is False
         assert created["routes"] == []
         assert created["status"] == "PENDING"
@@ -1602,12 +2078,12 @@ def test_shopping_list_endpoints_support_crud(tmp_path: object) -> None:
 
         updated = client.put(
             f"/api/v1/shopping-lists/{shopping_list_id}",
-            json={"name": "  Weekend  ", "tags": [], "active": True},
+            json={"name": "  Weekend  ", "items": [], "active": True},
         )
         assert updated.status_code == 200
         assert updated.json() == {
             "name": "Weekend",
-            "tags": [],
+            "items": [],
             "active": True,
             "id": shopping_list_id,
             "routes": [],
@@ -1645,7 +2121,7 @@ def test_shopping_list_endpoints_support_crud(tmp_path: object) -> None:
 
         missing_update = client.put(
             f"/api/v1/shopping-lists/{shopping_list_id}",
-            json={"name": "Missing", "tags": []},
+            json={"name": "Missing", "items": []},
         )
         assert missing_update.status_code == 404
 
@@ -1655,19 +2131,44 @@ def test_shopping_list_endpoints_support_crud(tmp_path: object) -> None:
         )
         assert missing_name_update.status_code == 404
 
-        invalid = client.post("/api/v1/shopping-lists", json={"tags": ["   "]})
+        invalid = client.post(
+            "/api/v1/shopping-lists", json={"items": [{"tag": "   "}]}
+        )
         assert invalid.status_code == 422
 
+        unknown = client.post(
+            "/api/v1/shopping-lists", json={"items": [{"tag": "missing"}]}
+        )
+        assert unknown.status_code == 422
+        assert unknown.json()["detail"] == "unknown shopping list tags: missing"
 
-def test_route_candidate_endpoint_uses_saved_tags_without_persisting_results(
+
+def test_route_candidate_endpoint_uses_saved_items_without_persisting_results(
     tmp_path: object,
 ) -> None:
     database_path = tmp_path / "route-candidate-api.db"  # type: ignore[operator]
     initialize_database(database_path)
     connection = connect_database(database_path)
     try:
+        connection.execute(
+            """
+            INSERT INTO tags (tag, default_unit, default_quantity)
+            VALUES ('milk', 'gallon', 1)
+            """
+        )
         shopping_list = create_shopping_list(
-            connection, ShoppingListCreate(name="Weekend", tags={"milk"})
+            connection,
+            ShoppingListCreate(
+                name="Weekend",
+                items=[
+                    {
+                        "tag": "milk",
+                        "modifiers": ["organic"],
+                        "unit": "gallon",
+                        "quantity": 2,
+                    }
+                ],
+            ),
         )
         connection.execute(
             "INSERT INTO stores (id, name, address) VALUES (1, 'Market', '1 Main St')"
@@ -1676,7 +2177,10 @@ def test_route_candidate_endpoint_uses_saved_tags_without_persisting_results(
             "INSERT INTO products (id, name, store_id, unit) VALUES (10, 'Milk', 1, 'gallon')"
         )
         connection.execute(
-            "INSERT INTO product_tags (product_id, tag, position) VALUES (10, 'milk', 0)"
+            "INSERT INTO tag_products (tag, product_id) VALUES ('milk', 10)"
+        )
+        connection.execute(
+            "INSERT INTO product_modifiers VALUES (10, 'organic', 0)"
         )
         connection.execute(
             "INSERT INTO price_history (product_id, date, price) VALUES (10, 100, 3.50)"
@@ -1702,9 +2206,18 @@ def test_route_candidate_endpoint_uses_saved_tags_without_persisting_results(
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["status"] == "OPTIMAL"
-    assert payload["provenPrefixCount"] == 1
+    assert payload["status"] == "HEURISTIC"
+    assert payload["provenPrefixCount"] == 0
     assert payload["candidates"][0]["products"] == [10]
+    assert payload["candidates"][0]["selections"] == [
+        {
+            "tag": "milk",
+            "modifiers": ["organic"],
+            "unit": "gallon",
+            "quantity": 2.0,
+            "product": 10,
+        }
+    ]
     assert provider.current_location is not None
     assert provider.current_location.x == -117.1825
     assert provider.current_location.y == 34.0556
@@ -1736,8 +2249,14 @@ def test_route_candidate_endpoint_returns_typed_unavailable_errors(
     tmp_path: object,
 ) -> None:
     database_path = tmp_path / "route-candidate-errors.db"  # type: ignore[operator]
+    initialize_database(database_path)
+    connection = connect_database(database_path)
+    try:
+        connection.execute("INSERT INTO tags VALUES ('unavailable', 'each', 1)")
+    finally:
+        connection.close()
     with TestClient(create_app(database_path)) as client:
-        empty = client.post("/api/v1/shopping-lists", json={"tags": []}).json()
+        empty = client.post("/api/v1/shopping-lists", json={"items": []}).json()
         empty_response = client.post(
             f"/api/v1/shopping-lists/{empty['id']}/route-candidates",
             json={"latitude": 34, "longitude": -117},
@@ -1748,7 +2267,7 @@ def test_route_candidate_endpoint_returns_typed_unavailable_errors(
         )
 
         no_match = client.post(
-            "/api/v1/shopping-lists", json={"tags": ["unavailable"]}
+            "/api/v1/shopping-lists", json={"items": [{"tag": "unavailable"}]}
         ).json()
         no_match_response = client.post(
             f"/api/v1/shopping-lists/{no_match['id']}/route-candidates",
@@ -1792,6 +2311,8 @@ def test_openapi_only_publishes_implemented_operations(tmp_path: object) -> None
         "/api/v1/shopping-lists/{shopping_list_id}",
         "/api/v1/shopping-lists/{shopping_list_id}/name",
         "/api/v1/shopping-lists/{shopping_list_id}/route-candidates",
+        "/api/v1/tags",
+        "/api/v1/tags/{tag_id}/modifiers",
     }
     assert set(openapi["paths"]["/api/v1/assistant/chat"]) == {"post"}
     assert set(openapi["paths"]["/api/v1/assistant/recipe-import"]) == {"post"}
@@ -1809,3 +2330,5 @@ def test_openapi_only_publishes_implemented_operations(tmp_path: object) -> None
             "/api/v1/shopping-lists/{shopping_list_id}/route-candidates"
         ]
     ) == {"post"}
+    assert set(openapi["paths"]["/api/v1/tags"]) == {"get"}
+    assert set(openapi["paths"]["/api/v1/tags/{tag_id}/modifiers"]) == {"get"}

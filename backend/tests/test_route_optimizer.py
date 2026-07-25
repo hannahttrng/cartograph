@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from itertools import permutations, product
 
 import pytest
@@ -14,18 +15,43 @@ from backend.route_optimizer import (
     NoFeasibleRouteError,
     OptimizationCatalog,
     OptimizationProduct,
-    RouteScorePolicy,
     SolverSettings,
-    _assignment_tie_expressions,
-    _build_problem,
     optimize_routes,
 )
-from backend.types import Store
+from backend.types import ShoppingListItem, Store
 from backend.types import RouteOptimizationStatus
 
 
 def metric(distance: float, travel_time: float) -> TravelMetric:
     return TravelMetric(distanceMiles=distance, travelTimeMinutes=travel_time)
+
+
+@dataclass(frozen=True, slots=True)
+class _ProductFixture:
+    id: int
+    name: str
+    store_id: int
+    unit: str
+    price: float
+    matching_tags: tuple[str, ...]
+
+
+def _fixture_product(
+    product_id: int,
+    name: str,
+    store_id: int,
+    unit: str,
+    price: float,
+    matching_tags: tuple[str, ...],
+) -> _ProductFixture:
+    return _ProductFixture(
+        id=product_id,
+        name=name,
+        store_id=store_id,
+        unit=unit,
+        price=price,
+        matching_tags=matching_tags,
+    )
 
 
 def test_catalog_loads_only_current_products_and_preserves_matching_edges(
@@ -44,13 +70,20 @@ def test_catalog_loads_only_current_products_and_preserves_matching_edges(
             [(20, "Current Multi", 2), (10, "Stale", 1), (30, "Current Milk", 1)],
         )
         connection.executemany(
-            "INSERT INTO product_tags (product_id, tag, position) VALUES (?, ?, ?)",
+            """
+            INSERT INTO tags (tag, default_unit, default_quantity)
+            VALUES (?, 'each', 1)
+            """,
+            [("dairy",), ("ignored",), ("milk",)],
+        )
+        connection.executemany(
+            "INSERT INTO tag_products (tag, product_id) VALUES (?, ?)",
             [
-                (20, "dairy", 0),
-                (20, "milk", 1),
-                (10, "milk", 0),
-                (30, "milk", 0),
-                (30, "ignored", 1),
+                ("dairy", 20),
+                ("milk", 20),
+                ("milk", 10),
+                ("milk", 30),
+                ("ignored", 30),
             ],
         )
         connection.executemany(
@@ -67,15 +100,25 @@ def test_catalog_loads_only_current_products_and_preserves_matching_edges(
             [(4.25, 20), (3.75, 30)],
         )
 
-        catalog = load_optimization_catalog(connection, ["milk", "dairy", "milk"])
+        catalog = load_optimization_catalog(
+            connection,
+            [
+                ShoppingListItem(
+                    tag="dairy", modifiers=[], unit="each", quantity=1
+                ),
+                ShoppingListItem(
+                    tag="milk", modifiers=[], unit="each", quantity=1
+                ),
+            ],
+        )
     finally:
         connection.close()
 
-    assert catalog.requested_tags == ("dairy", "milk")
+    assert tuple(item.tag for item in catalog.requested_items) == ("dairy", "milk")
     assert [store.id for store in catalog.stores] == [1, 2]
     assert [product.id for product in catalog.products] == [20, 30]
-    assert catalog.products[0].matching_tags == ("dairy", "milk")
-    assert catalog.products[1].matching_tags == ("milk",)
+    assert catalog.products[0].matching_item_indices == (0, 1)
+    assert catalog.products[1].matching_item_indices == (1,)
 
 
 def test_directed_matrix_composes_store_and_location_rows() -> None:
@@ -104,11 +147,23 @@ def test_directed_matrix_composes_store_and_location_rows() -> None:
     assert directed.get(20, 10) == metric(4, 10)
 
 
-def _catalog(products: list[OptimizationProduct]) -> OptimizationCatalog:
+def _catalog(products: list[_ProductFixture]) -> OptimizationCatalog:
     store_ids = sorted({product.store_id for product in products})
     tags = sorted({tag for product in products for tag in product.matching_tags})
+    tag_indices = {tag: index for index, tag in enumerate(tags)}
+    requested_items = tuple(
+        ShoppingListItem(
+            tag=tag,
+            modifiers=[],
+            unit=next(
+                product.unit for product in products if tag in product.matching_tags
+            ),
+            quantity=1,
+        )
+        for tag in tags
+    )
     return OptimizationCatalog(
-        requested_tags=tuple(tags),
+        requested_items=requested_items,
         stores=tuple(
             Store(
                 id=store_id,
@@ -120,7 +175,21 @@ def _catalog(products: list[OptimizationProduct]) -> OptimizationCatalog:
             )
             for store_id in store_ids
         ),
-        products=tuple(sorted(products, key=lambda product: product.id)),
+        products=tuple(
+            OptimizationProduct(
+                id=product.id,
+                name=product.name,
+                store_id=product.store_id,
+                unit=product.unit,
+                price=product.price,
+                price_quantity=1,
+                modifiers=(),
+                matching_item_indices=tuple(
+                    tag_indices[tag] for tag in product.matching_tags
+                ),
+            )
+            for product in sorted(products, key=lambda product: product.id)
+        ),
     )
 
 
@@ -146,9 +215,69 @@ def _complete_matrix(store_ids: list[int]) -> DirectedTravelMatrix:
     )
 
 
+def test_catalog_filters_item_constraints_and_prices_requested_quantity(
+    tmp_path: object,
+) -> None:
+    database_path = tmp_path / "item-eligibility.db"  # type: ignore[operator]
+    initialize_database(database_path)
+    connection = connect_database(database_path)
+    try:
+        connection.execute("INSERT INTO tags VALUES ('egg', 'count', 6)")
+        connection.execute(
+            "INSERT INTO stores VALUES (1, 'Market', '1 Main St')"
+        )
+        connection.executemany(
+            """
+            INSERT INTO products (
+                id, name, store_id, unit, current_price_date,
+                current_price, current_price_quantity, current_price_sale
+            )
+            VALUES (?, ?, 1, ?, 100, ?, 12, 0)
+            """,
+            [
+                (10, "Organic Eggs", "count", 4.00),
+                (20, "Plain Eggs", "count", 2.00),
+                (30, "Organic Dozen", "dozen", 3.00),
+            ],
+        )
+        connection.executemany(
+            "INSERT INTO tag_products VALUES ('egg', ?)",
+            [(10,), (20,), (30,)],
+        )
+        connection.executemany(
+            "INSERT INTO product_modifiers VALUES (?, 'organic', 0)",
+            [(10,), (30,)],
+        )
+
+        catalog = load_optimization_catalog(
+            connection,
+            [
+                ShoppingListItem(
+                    tag="egg",
+                    modifiers=["organic"],
+                    unit="count",
+                    quantity=6,
+                )
+            ],
+        )
+    finally:
+        connection.close()
+
+    assert [product.id for product in catalog.products] == [10]
+    assert catalog.products[0].price_quantity == 12
+    assert catalog.products[0].matching_item_indices == (0,)
+
+    result = optimize_routes(catalog, _complete_matrix([1]), limit=1)
+
+    candidate = result.candidates[0]
+    assert candidate.products == [10]
+    assert candidate.product_price == 2.0
+    assert candidate.score_components.product_price == 2.0
+
+
 def test_optimizer_quantizes_and_explains_score() -> None:
     catalog = _catalog(
-        [OptimizationProduct(10, "Milk", 1, "gallon", 3.495, ("milk",))]
+        [_fixture_product(10, "Milk", 1, "gallon", 3.495, ("milk",))]
     )
 
     result = optimize_routes(
@@ -167,15 +296,15 @@ def test_optimizer_quantizes_and_explains_score() -> None:
     assert candidate.score_components.time_cost == 2
     assert candidate.score_components.store_cost == 2.5
     assert candidate.score == 9.4
-    assert result.status.value == "OPTIMAL"
-    assert result.proven_prefix_count == 1
+    assert result.status.value == "HEURISTIC"
+    assert result.proven_prefix_count == 0
 
 
 def test_optimizer_prefers_coverage_before_lower_score() -> None:
     catalog = _catalog(
         [
-            OptimizationProduct(10, "Milk", 1, "each", 1, ("milk",)),
-            OptimizationProduct(20, "Bread", 2, "each", 100, ("bread",)),
+            _fixture_product(10, "Milk", 1, "each", 1, ("milk",)),
+            _fixture_product(20, "Bread", 2, "each", 100, ("bread",)),
         ]
     )
 
@@ -186,7 +315,7 @@ def test_optimizer_prefers_coverage_before_lower_score() -> None:
         settings=SolverSettings(timeout_seconds=5),
     )
 
-    assert [candidate.matched_tag_count for candidate in result.candidates] == [2, 2, 1, 1]
+    assert [candidate.matched_item_count for candidate in result.candidates] == [2, 2, 1, 1]
     assert result.candidates[1].score > result.candidates[2].score
     assert all(candidate.error_code is None for candidate in result.candidates[:2])
     assert all(candidate.error_code is not None for candidate in result.candidates[2:])
@@ -195,9 +324,9 @@ def test_optimizer_prefers_coverage_before_lower_score() -> None:
 def test_optimizer_uses_distinct_products_and_deterministic_ties() -> None:
     catalog = _catalog(
         [
-            OptimizationProduct(10, "Multi", 1, "each", 1, ("dairy", "milk")),
-            OptimizationProduct(20, "Milk", 1, "each", 1, ("milk",)),
-            OptimizationProduct(30, "Dairy", 1, "each", 1, ("dairy",)),
+            _fixture_product(10, "Multi", 1, "each", 1, ("dairy", "milk")),
+            _fixture_product(20, "Milk", 1, "each", 1, ("milk",)),
+            _fixture_product(30, "Dairy", 1, "each", 1, ("dairy",)),
         ]
     )
 
@@ -218,11 +347,11 @@ def test_optimizer_uses_distinct_products_and_deterministic_ties() -> None:
 def test_optimizer_caps_product_variants_per_store_sequence() -> None:
     catalog = _catalog(
         [
-            OptimizationProduct(product_id, f"Milk {product_id}", 1, "each", product_id, ("milk",))
+            _fixture_product(product_id, f"Milk {product_id}", 1, "each", product_id, ("milk",))
             for product_id in range(1, 6)
         ]
         + [
-            OptimizationProduct(10, "Other Store Milk", 2, "each", 10, ("milk",))
+            _fixture_product(10, "Other Store Milk", 2, "each", 10, ("milk",))
         ]
     )
 
@@ -239,9 +368,25 @@ def test_optimizer_caps_product_variants_per_store_sequence() -> None:
 
 def test_optimizer_preserves_unavailable_tags_as_partial_selections() -> None:
     catalog = OptimizationCatalog(
-        requested_tags=("milk", "unavailable"),
+        requested_items=(
+            ShoppingListItem(tag="milk", modifiers=[], unit="each", quantity=1),
+            ShoppingListItem(
+                tag="unavailable", modifiers=[], unit="each", quantity=1
+            ),
+        ),
         stores=(Store(id=1, name="Store 1", address="1 Main St", products=[10]),),
-        products=(OptimizationProduct(10, "Milk", 1, "each", 2, ("milk",)),),
+        products=(
+            OptimizationProduct(
+                10,
+                "Milk",
+                1,
+                "each",
+                2,
+                1,
+                (),
+                (0,),
+            ),
+        ),
     )
 
     result = optimize_routes(catalog, _complete_matrix([1]), limit=1)
@@ -251,13 +396,13 @@ def test_optimizer_preserves_unavailable_tags_as_partial_selections() -> None:
         ("milk", 10),
         ("unavailable", None),
     ]
-    assert candidate.matched_tag_count == 1
+    assert candidate.matched_item_count == 1
     assert candidate.error_code is not None
 
 
 def test_optimizer_rejects_store_without_origin_round_trip() -> None:
     catalog = _catalog(
-        [OptimizationProduct(10, "Milk", 1, "each", 2, ("milk",))]
+        [_fixture_product(10, "Milk", 1, "each", 2, ("milk",))]
     )
     travel = DirectedTravelMatrix(
         store_ids=(1,),
@@ -272,12 +417,12 @@ def test_optimizer_rejects_store_without_origin_round_trip() -> None:
         optimize_routes(catalog, travel, limit=1)
 
 
-def test_optimizer_top_k_matches_exhaustive_directed_enumeration() -> None:
+def test_optimizer_returns_ranked_feasible_candidates_on_small_fixture() -> None:
     products = [
-        OptimizationProduct(10, "Milk One", 1, "each", 3, ("milk",)),
-        OptimizationProduct(20, "Milk Two", 2, "each", 2, ("milk",)),
-        OptimizationProduct(30, "Bread One", 1, "each", 4, ("bread",)),
-        OptimizationProduct(40, "Bread Two", 2, "each", 5, ("bread",)),
+        _fixture_product(10, "Milk One", 1, "each", 3, ("milk",)),
+        _fixture_product(20, "Milk Two", 2, "each", 2, ("milk",)),
+        _fixture_product(30, "Bread One", 1, "each", 4, ("bread",)),
+        _fixture_product(40, "Bread Two", 2, "each", 5, ("bread",)),
     ]
     catalog = _catalog(products)
     arcs = {
@@ -295,7 +440,7 @@ def test_optimizer_top_k_matches_exhaustive_directed_enumeration() -> None:
 
     products_by_tag = {
         tag: [item for item in products if tag in item.matching_tags]
-        for tag in catalog.requested_tags
+        for tag in (item.tag for item in catalog.requested_items)
     }
     product_rank = {
         item.id: rank for rank, item in enumerate(products, start=1)
@@ -305,7 +450,10 @@ def test_optimizer_top_k_matches_exhaustive_directed_enumeration() -> None:
         tuple[int, float, tuple[int, ...], tuple[int, ...], tuple[int | None, ...]]
     ] = []
     for choices in product(
-        *([None] + products_by_tag[tag] for tag in catalog.requested_tags)
+        *(
+            [None] + products_by_tag[item.tag]
+            for item in catalog.requested_items
+        )
     ):
         selected = [item for item in choices if item is not None]
         if not selected or len({item.id for item in selected}) != len(selected):
@@ -351,22 +499,9 @@ def test_optimizer_top_k_matches_exhaustive_directed_enumeration() -> None:
                 )
             )
     exhaustive.sort()
-    filtered: list[
-        tuple[int, float, tuple[int, ...], tuple[int, ...], tuple[int | None, ...]]
-    ] = []
-    sequence_counts: dict[tuple[int, ...], int] = {}
-    for expected in exhaustive:
-        sequence = expected[2]
-        if sequence_counts.get(sequence, 0) >= 3:
-            continue
-        sequence_counts[sequence] = sequence_counts.get(sequence, 0) + 1
-        filtered.append(expected)
-        if len(filtered) == 12:
-            break
-
     actual = [
         (
-            -candidate.matched_tag_count,
+            -candidate.matched_item_count,
             candidate.score,
             tuple(candidate.stores),
             tuple(
@@ -379,14 +514,80 @@ def test_optimizer_top_k_matches_exhaustive_directed_enumeration() -> None:
         )
         for candidate in result.candidates
     ]
-    assert actual == filtered
+    feasible = set(exhaustive)
+    assert actual == sorted(actual)
+    assert all(candidate in feasible for candidate in actual)
+    assert actual[0][0] == min(candidate[0] for candidate in exhaustive)
+    assert len({(candidate[2], candidate[4]) for candidate in actual}) == len(actual)
+
+
+def test_optimizer_uses_feasible_product_over_cheaper_unreachable_product() -> None:
+    catalog = _catalog(
+        [
+            _fixture_product(10, "Unreachable Milk", 1, "each", 1, ("milk",)),
+            _fixture_product(20, "Reachable Milk", 2, "each", 5, ("milk",)),
+        ]
+    )
+    travel = DirectedTravelMatrix(
+        store_ids=(1, 2),
+        arcs={
+            (None, 1): None,
+            (1, None): None,
+            (None, 2): metric(1, 3),
+            (2, None): metric(1, 3),
+            (1, 1): metric(0, 0),
+            (2, 2): metric(0, 0),
+            (1, 2): None,
+            (2, 1): None,
+        },
+    )
+
+    result = optimize_routes(catalog, travel, limit=2)
+
+    assert result.candidates[0].products == [20]
+    assert all(candidate.products != [10] for candidate in result.candidates)
+
+
+def test_optimizer_finds_sparse_directed_store_sequence() -> None:
+    catalog = _catalog(
+        [
+            _fixture_product(10, "First", 1, "each", 1, ("first",)),
+            _fixture_product(20, "Second", 2, "each", 1, ("second",)),
+            _fixture_product(30, "Third", 3, "each", 1, ("third",)),
+        ]
+    )
+    travel = DirectedTravelMatrix(
+        store_ids=(1, 2, 3),
+        arcs={
+            (None, 1): None,
+            (None, 2): metric(1, 2),
+            (None, 3): None,
+            (1, None): None,
+            (2, None): None,
+            (3, None): metric(1, 2),
+            (1, 1): metric(0, 0),
+            (2, 2): metric(0, 0),
+            (3, 3): metric(0, 0),
+            (1, 2): None,
+            (1, 3): metric(1, 2),
+            (2, 1): metric(1, 2),
+            (2, 3): None,
+            (3, 1): None,
+            (3, 2): None,
+        },
+    )
+
+    result = optimize_routes(catalog, travel, limit=1)
+
+    assert result.candidates[0].stores == [2, 1, 3]
+    assert result.candidates[0].matched_item_count == 3
 
 
 def test_optimizer_reports_unproven_candidate_when_deadline_hits_during_ties(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     catalog = _catalog(
-        [OptimizationProduct(10, "Milk", 1, "each", 2, ("milk",))]
+        [_fixture_product(10, "Milk", 1, "each", 2, ("milk",))]
     )
     clock = iter((0.0, 0.0, 6.0, 6.0))
     monkeypatch.setattr("backend.route_optimizer.monotonic", lambda: next(clock))
@@ -403,34 +604,9 @@ def test_optimizer_reports_unproven_candidate_when_deadline_hits_during_ties(
     assert len(result.candidates) == 1
 
 
-def test_large_primary_use_case_has_valid_tie_objectives() -> None:
-    tags = tuple(f"tag-{index:02d}" for index in range(15))
-    products = tuple(
-        OptimizationProduct(
-            id=product_id,
-            name=f"Product {product_id}",
-            store_id=1,
-            unit="each",
-            price=float(product_id),
-            matching_tags=(tags[product_id % len(tags)],),
-        )
-        for product_id in range(1, 121)
-    )
-    catalog = OptimizationCatalog(
-        requested_tags=tags,
-        stores=(
-            Store(
-                id=1,
-                name="Store 1",
-                address="1 Main St",
-                products=[item.id for item in products],
-            ),
-        ),
-        products=products,
-    )
-    problem = _build_problem(catalog, _complete_matrix([1]), RouteScorePolicy())
+def test_solver_settings_validate_heuristic_bounds() -> None:
+    with pytest.raises(ValueError, match="assignment_beam_width must be positive"):
+        SolverSettings(assignment_beam_width=0)
 
-    for expression in _assignment_tie_expressions(problem):
-        model = problem.model.clone()
-        model.minimize(expression)
-        assert model.validate() == ""
+    with pytest.raises(ValueError, match="sequence_beam_width must be positive"):
+        SolverSettings(sequence_beam_width=0)

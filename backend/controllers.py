@@ -14,9 +14,12 @@ from backend.resolvers import (
     create_shopping_list,
     delete_shopping_list,
     get_shopping_list,
+    list_tag_modifiers,
+    list_tags,
     list_shopping_lists,
     load_optimization_catalog,
     replace_shopping_list,
+    UnknownShoppingListTagError,
     update_shopping_list_name,
 )
 from backend.route_optimizer import (
@@ -44,6 +47,7 @@ from backend.types import (
     ShoppingListCreate,
     ShoppingListNameUpdate,
     ShoppingListReplace,
+    Tag,
 )
 
 
@@ -75,6 +79,10 @@ def _request_database(request: Request) -> Iterator[sqlite3.Connection]:
 
 def _shopping_list_not_found() -> HTTPException:
     return HTTPException(status_code=404, detail="Shopping list not found")
+
+
+def _tag_not_found() -> HTTPException:
+    return HTTPException(status_code=404, detail="Tag not found")
 
 
 def _optimization_error(
@@ -135,6 +143,25 @@ async def get_health() -> HealthResponse:
     return HealthResponse()
 
 
+@router.get("/tags", response_model=list[Tag], tags=["catalog"])
+def get_tags(request: Request) -> list[Tag]:
+    with _request_database(request) as connection:
+        return list_tags(connection)
+
+
+@router.get(
+    "/tags/{tag_id}/modifiers",
+    response_model=list[str],
+    tags=["catalog"],
+)
+def get_tag_modifiers(request: Request, tag_id: str) -> list[str]:
+    with _request_database(request) as connection:
+        modifiers = list_tag_modifiers(connection, tag_id)
+    if modifiers is None:
+        raise _tag_not_found()
+    return modifiers
+
+
 @router.post(
     "/shopping-lists",
     response_model=ShoppingList,
@@ -145,7 +172,13 @@ def post_shopping_list(
     request: Request, payload: ShoppingListCreate
 ) -> ShoppingList:
     with _request_database(request) as connection:
-        return create_shopping_list(connection, payload)
+        try:
+            return create_shopping_list(connection, payload)
+        except UnknownShoppingListTagError as error:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=str(error),
+            ) from error
 
 
 @router.get(
@@ -184,7 +217,15 @@ def put_shopping_list(
     payload: ShoppingListReplace,
 ) -> ShoppingList:
     with _request_database(request) as connection:
-        shopping_list = replace_shopping_list(connection, shopping_list_id, payload)
+        try:
+            shopping_list = replace_shopping_list(
+                connection, shopping_list_id, payload
+            )
+        except UnknownShoppingListTagError as error:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=str(error),
+            ) from error
     if shopping_list is None:
         raise _shopping_list_not_found()
     return shopping_list
@@ -223,15 +264,15 @@ async def post_shopping_list_route_candidates(
         shopping_list = get_shopping_list(connection, shopping_list_id)
         if shopping_list is None:
             raise _shopping_list_not_found()
-        if not shopping_list.tags:
+        if not shopping_list.items:
             raise _optimization_error(
                 status.HTTP_422_UNPROCESSABLE_CONTENT,
-                "Shopping list has no tags",
+                "Shopping list has no items",
                 RouteOptimizationErrorCode.NO_ELIGIBLE_PRODUCTS,
             )
         try:
             catalog = load_optimization_catalog(
-                connection, sorted(shopping_list.tags)
+                connection, shopping_list.items
             )
         except ValueError as error:
             raise _optimization_error(
@@ -243,7 +284,7 @@ async def post_shopping_list_route_candidates(
     if not catalog.products:
         raise _optimization_error(
             status.HTTP_422_UNPROCESSABLE_CONTENT,
-            "No requested tag has an eligible current-price product",
+            "No requested item has an eligible current-price product",
             RouteOptimizationErrorCode.NO_ELIGIBLE_PRODUCTS,
         )
 
@@ -302,10 +343,10 @@ async def post_shopping_list_route_candidates(
         ) from error
 
     logger.info(
-        "optimized shopping_list_id=%s tags=%s stores=%s products=%s "
+        "optimized shopping_list_id=%s items=%s stores=%s products=%s "
         "requested=%s returned=%s status=%s proven_prefix=%s elapsed=%.3f",
         shopping_list_id,
-        len(catalog.requested_tags),
+        len(catalog.requested_items),
         len(catalog.stores),
         len(catalog.products),
         payload.limit,

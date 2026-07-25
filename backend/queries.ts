@@ -4,6 +4,7 @@ export interface Tag {
   tag: string;
   defaultUnit: string;
   defaultQuantity: number;
+  products: EntityId[];
 }
 
 export interface Price {
@@ -17,7 +18,7 @@ export interface Price {
 export interface Product {
   id: EntityId;
   name: string;
-  tags: string[];
+  modifiers: string[];
   store: EntityId;
   currentPrice: Price | null;
   priceHistory: Price[];
@@ -31,15 +32,29 @@ export interface Store {
   products: EntityId[];
 }
 
+export interface ShoppingListItemInput {
+  tag: string;
+  modifiers?: string[];
+  unit?: string | null;
+  quantity?: number | null;
+}
+
+export interface ShoppingListItem {
+  tag: string;
+  modifiers: string[];
+  unit: string;
+  quantity: number;
+}
+
 export interface ShoppingListCreate {
   name?: string | null;
-  tags: string[];
+  items: ShoppingListItemInput[];
   active?: boolean;
 }
 
 export interface ShoppingListReplace {
   name: string;
-  tags: string[];
+  items: ShoppingListItemInput[];
   active?: boolean;
 }
 
@@ -49,23 +64,24 @@ export interface ShoppingListNameUpdate {
 
 export type ShoppingListStatus = "PENDING" | "COMPUTING" | "READY" | "FAILED";
 
-export interface ShoppingList extends Omit<ShoppingListReplace, "active"> {
+export interface ShoppingList {
   id: EntityId;
+  name: string;
+  items: ShoppingListItem[];
   active: boolean;
   routes: EntityId[];
   status: ShoppingListStatus;
 }
 
 export interface RouteCreate {
-  tags: string[];
+  items: ShoppingListItem[];
 }
 
-export interface RouteTagSelection {
-  tag: string;
+export interface RouteItemSelection extends ShoppingListItem {
   product: EntityId | null;
 }
 
-export type RouteErrorCode = "PARTIAL_TAG_MATCH";
+export type RouteErrorCode = "PARTIAL_ITEM_MATCH";
 
 export interface RouteMetrics {
   distance: number;
@@ -77,13 +93,8 @@ export interface Route extends RouteMetrics {
   id: EntityId;
   stores: EntityId[];
   products: EntityId[];
-  productTags: Record<string, string[]>;
-  selections: RouteTagSelection[];
+  selections: RouteItemSelection[];
   errorCode?: RouteErrorCode | null;
-}
-
-export interface RouteModel extends Omit<Route, "productTags"> {
-  productTags: Map<EntityId, string[]>;
 }
 
 export interface RouteOptimizationRequest {
@@ -104,15 +115,17 @@ export interface RouteScoreComponents {
 export interface RouteCandidate extends RouteMetrics {
   stores: EntityId[];
   products: EntityId[];
-  productTags: Record<string, string[]>;
-  selections: RouteTagSelection[];
+  selections: RouteItemSelection[];
   productPrice: number;
-  matchedTagCount: number;
+  matchedItemCount: number;
   scoreComponents: RouteScoreComponents;
   errorCode?: RouteErrorCode | null;
 }
 
-export type RouteOptimizationStatus = "OPTIMAL" | "FEASIBLE_TIMEOUT";
+export type RouteOptimizationStatus =
+  | "OPTIMAL"
+  | "HEURISTIC"
+  | "FEASIBLE_TIMEOUT";
 
 export interface RouteOptimizationResponse {
   candidates: RouteCandidate[];
@@ -139,6 +152,11 @@ export interface RequestOptions {
 
 export interface ApiClient {
   getHealth(options?: RequestOptions): Promise<HealthResponse>;
+  listTags(options?: RequestOptions): Promise<Tag[]>;
+  listTagModifiers(
+    tagId: string,
+    options?: RequestOptions,
+  ): Promise<string[]>;
   listShoppingLists(options?: RequestOptions): Promise<ShoppingList[]>;
   getShoppingList(
     shoppingListId: EntityId,
@@ -183,43 +201,6 @@ export class ApiClientError extends Error {
   }
 }
 
-export function productTagsFromWire(
-  productTags: Record<string, string[]>,
-): Map<EntityId, string[]> {
-  const result = new Map<EntityId, string[]>();
-  for (const [rawProductId, tags] of Object.entries(productTags)) {
-    const productId = Number(rawProductId);
-    if (!Number.isSafeInteger(productId) || productId <= 0) {
-      throw new ApiClientError(`Invalid product ID in productTags: ${rawProductId}`);
-    }
-    result.set(productId, [...tags]);
-  }
-  return result;
-}
-
-export function productTagsToWire(
-  productTags: ReadonlyMap<EntityId, readonly string[]>,
-): Record<string, string[]> {
-  const result: Record<string, string[]> = {};
-  for (const [productId, tags] of productTags) {
-    if (!Number.isSafeInteger(productId) || productId <= 0) {
-      throw new ApiClientError(`Invalid product ID in productTags: ${productId}`);
-    }
-    result[String(productId)] = [...tags];
-  }
-  return result;
-}
-
-export function toRouteModel(route: Route): RouteModel {
-  return {
-    ...route,
-    stores: [...route.stores],
-    products: [...route.products],
-    selections: route.selections.map((selection) => ({ ...selection })),
-    productTags: productTagsFromWire(route.productTags),
-  };
-}
-
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -259,25 +240,53 @@ function parseEntityId(value: unknown, fieldName: string): EntityId {
   return value as EntityId;
 }
 
-function parseTags(value: unknown): string[] {
+function isNormalizedText(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    Boolean(value) &&
+    value === value.trim() &&
+    value === value.toLowerCase()
+  );
+}
+
+function parseTagId(value: string): string {
+  if (!isNormalizedText(value)) {
+    throw new ApiClientError("tagId must be a normalized, nonblank string");
+  }
+  return value;
+}
+
+function parseShoppingListItems(value: unknown): ShoppingListItem[] {
   if (!Array.isArray(value)) {
-    throw new ApiClientError("The API returned invalid ShoppingList tags");
+    throw new ApiClientError("The API returned invalid ShoppingList items");
   }
-  const tags = value.map((tag) => {
+  const items = value.map((item) => {
     if (
-      typeof tag !== "string" ||
-      !tag ||
-      tag !== tag.trim() ||
-      tag !== tag.toLowerCase()
+      !isObject(item) ||
+      !isNormalizedText(item.tag) ||
+      !isNormalizedText(item.unit)
     ) {
-      throw new ApiClientError("The API returned invalid ShoppingList tags");
+      throw new ApiClientError("The API returned invalid ShoppingList items");
     }
-    return tag;
+    const quantity = parseNonNegativeFiniteNumber(
+      item.quantity,
+      "ShoppingList item quantity",
+    );
+    if (quantity <= 0) {
+      throw new ApiClientError("The API returned invalid ShoppingList items");
+    }
+    return {
+      tag: item.tag,
+      modifiers: parseModifiers(item.modifiers),
+      unit: item.unit,
+      quantity,
+    };
   });
+  const tags = items.map((item) => item.tag);
   if (new Set(tags).size !== tags.length) {
-    throw new ApiClientError("The API returned duplicate ShoppingList tags");
+    throw new ApiClientError("The API returned duplicate ShoppingList item tags");
   }
-  return tags;
+  return items;
 }
 
 function parseRouteIds(value: unknown): EntityId[] {
@@ -323,7 +332,7 @@ function parseShoppingList(payload: unknown): ShoppingList {
   return {
     id: parseEntityId(payload.id, "ShoppingList ID"),
     name: payload.name,
-    tags: parseTags(payload.tags),
+    items: parseShoppingListItems(payload.items),
     active: payload.active,
     routes,
     status,
@@ -355,22 +364,94 @@ function parseUniqueEntityIds(value: unknown, fieldName: string): EntityId[] {
   return ids;
 }
 
-function parseRouteSelections(value: unknown): RouteTagSelection[] {
+function parseCatalogTag(payload: unknown): Tag {
+  if (
+    !isObject(payload) ||
+    !isNormalizedText(payload.tag) ||
+    !isNormalizedText(payload.defaultUnit)
+  ) {
+    throw new ApiClientError("The API returned an invalid Tag response");
+  }
+  const defaultQuantity = parseNonNegativeFiniteNumber(
+    payload.defaultQuantity,
+    "Tag defaultQuantity",
+  );
+  if (defaultQuantity <= 0) {
+    throw new ApiClientError("The API returned an invalid Tag defaultQuantity");
+  }
+  const products = parseUniqueEntityIds(payload.products, "Tag Product IDs");
+  if (
+    products.some(
+      (productId, index) => index > 0 && products[index - 1] > productId,
+    )
+  ) {
+    throw new ApiClientError("The API returned unordered Tag Product IDs");
+  }
+  return {
+    tag: payload.tag,
+    defaultUnit: payload.defaultUnit,
+    defaultQuantity,
+    products,
+  };
+}
+
+function parseCatalogTags(payload: unknown): Tag[] {
+  if (!Array.isArray(payload)) {
+    throw new ApiClientError("The API returned an invalid Tag collection");
+  }
+  const tags = payload.map(parseCatalogTag);
+  const tagIds = tags.map((tag) => tag.tag);
+  if (new Set(tagIds).size !== tagIds.length) {
+    throw new ApiClientError("The API returned duplicate Tags");
+  }
+  if (tagIds.some((tagId, index) => index > 0 && tagIds[index - 1] > tagId)) {
+    throw new ApiClientError("The API returned unordered Tags");
+  }
+  return tags;
+}
+
+function parseModifiers(payload: unknown): string[] {
+  if (!Array.isArray(payload) || !payload.every(isNormalizedText)) {
+    throw new ApiClientError("The API returned an invalid modifier collection");
+  }
+  const modifiers = [...payload];
+  if (new Set(modifiers).size !== modifiers.length) {
+    throw new ApiClientError("The API returned duplicate modifiers");
+  }
+  if (
+    modifiers.some(
+      (modifier, index) => index > 0 && modifiers[index - 1] > modifier,
+    )
+  ) {
+    throw new ApiClientError("The API returned unordered modifiers");
+  }
+  return modifiers;
+}
+
+function parseRouteSelections(value: unknown): RouteItemSelection[] {
   if (!Array.isArray(value)) {
     throw new ApiClientError("The API returned invalid route selections");
   }
   const selections = value.map((selection) => {
     if (
       !isObject(selection) ||
-      typeof selection.tag !== "string" ||
-      !selection.tag ||
-      selection.tag !== selection.tag.trim() ||
-      selection.tag !== selection.tag.toLowerCase()
+      !isNormalizedText(selection.tag) ||
+      !isNormalizedText(selection.unit)
     ) {
+      throw new ApiClientError("The API returned invalid route selections");
+    }
+    const quantity = parseNonNegativeFiniteNumber(
+      selection.quantity,
+      "route selection quantity",
+    );
+    if (quantity <= 0) {
       throw new ApiClientError("The API returned invalid route selections");
     }
     return {
       tag: selection.tag,
+      modifiers: parseModifiers(selection.modifiers),
+      unit: selection.unit,
+      quantity,
       product:
         selection.product === null
           ? null
@@ -378,44 +459,10 @@ function parseRouteSelections(value: unknown): RouteTagSelection[] {
     };
   });
   const tags = selections.map((selection) => selection.tag);
-  if (
-    new Set(tags).size !== tags.length ||
-    tags.some((tag, index) => index > 0 && tags[index - 1] > tag)
-  ) {
-    throw new ApiClientError("The API returned unordered route selections");
+  if (new Set(tags).size !== tags.length) {
+    throw new ApiClientError("The API returned duplicate route selection tags");
   }
   return selections;
-}
-
-function parseRouteProductTags(
-  value: unknown,
-  products: readonly EntityId[],
-): Record<string, string[]> {
-  if (!isObject(value)) {
-    throw new ApiClientError("The API returned invalid route productTags");
-  }
-  const parsed: Record<string, string[]> = {};
-  for (const [rawProductId, rawTags] of Object.entries(value)) {
-    const productId = parseEntityId(Number(rawProductId), "productTags Product ID");
-    if (
-      !Array.isArray(rawTags) ||
-      rawTags.length !== 1 ||
-      typeof rawTags[0] !== "string" ||
-      !rawTags[0]
-    ) {
-      throw new ApiClientError("The API returned invalid route productTags");
-    }
-    parsed[String(productId)] = [rawTags[0]];
-  }
-  const parsedIds = Object.keys(parsed).map(Number).sort((left, right) => left - right);
-  const expectedIds = [...products].sort((left, right) => left - right);
-  if (
-    parsedIds.length !== expectedIds.length ||
-    parsedIds.some((productId, index) => productId !== expectedIds[index])
-  ) {
-    throw new ApiClientError("The API returned inconsistent route productTags");
-  }
-  return parsed;
 }
 
 function parseRouteCandidate(payload: unknown): RouteCandidate {
@@ -425,7 +472,6 @@ function parseRouteCandidate(payload: unknown): RouteCandidate {
   const stores = parseUniqueEntityIds(payload.stores, "Route Store IDs");
   const products = parseUniqueEntityIds(payload.products, "Route Product IDs");
   const selections = parseRouteSelections(payload.selections);
-  const productTags = parseRouteProductTags(payload.productTags, products);
   const matchedSelections = selections.filter(
     (selection) => selection.product !== null,
   );
@@ -437,28 +483,20 @@ function parseRouteCandidate(payload: unknown): RouteCandidate {
   ) {
     throw new ApiClientError("The API returned inconsistent Route selections");
   }
-  for (const selection of matchedSelections) {
-    if (
-      selection.product === null ||
-      productTags[String(selection.product)]?.[0] !== selection.tag
-    ) {
-      throw new ApiClientError("The API returned inconsistent Route productTags");
-    }
-  }
   const expectedError =
-    matchedSelections.length === selections.length ? null : "PARTIAL_TAG_MATCH";
+    matchedSelections.length === selections.length ? null : "PARTIAL_ITEM_MATCH";
   const errorCode: RouteErrorCode | null =
-    payload.errorCode === "PARTIAL_TAG_MATCH" ? "PARTIAL_TAG_MATCH" : null;
+    payload.errorCode === "PARTIAL_ITEM_MATCH" ? "PARTIAL_ITEM_MATCH" : null;
   if ((payload.errorCode ?? null) !== errorCode || errorCode !== expectedError) {
     throw new ApiClientError("The API returned inconsistent Route errorCode");
   }
-  const matchedTagCount =
-    typeof payload.matchedTagCount === "number" ? payload.matchedTagCount : NaN;
-  if (!Number.isSafeInteger(matchedTagCount) || matchedTagCount <= 0) {
-    throw new ApiClientError("The API returned an invalid matchedTagCount");
+  const matchedItemCount =
+    typeof payload.matchedItemCount === "number" ? payload.matchedItemCount : NaN;
+  if (!Number.isSafeInteger(matchedItemCount) || matchedItemCount <= 0) {
+    throw new ApiClientError("The API returned an invalid matchedItemCount");
   }
-  if (matchedTagCount !== matchedSelections.length) {
-    throw new ApiClientError("The API returned inconsistent matchedTagCount");
+  if (matchedItemCount !== matchedSelections.length) {
+    throw new ApiClientError("The API returned inconsistent matchedItemCount");
   }
   if (!isObject(payload.scoreComponents)) {
     throw new ApiClientError("The API returned invalid scoreComponents");
@@ -499,13 +537,12 @@ function parseRouteCandidate(payload: unknown): RouteCandidate {
   return {
     stores,
     products,
-    productTags,
     selections,
     distance: parseNonNegativeFiniteNumber(payload.distance, "Route distance"),
     time: parseNonNegativeFiniteNumber(payload.time, "Route time"),
     score,
     productPrice,
-    matchedTagCount,
+    matchedItemCount,
     scoreComponents,
     errorCode,
   };
@@ -515,7 +552,11 @@ function parseRouteOptimizationResponse(payload: unknown): RouteOptimizationResp
   if (!isObject(payload) || !Array.isArray(payload.candidates)) {
     throw new ApiClientError("The API returned an invalid optimization response");
   }
-  if (payload.status !== "OPTIMAL" && payload.status !== "FEASIBLE_TIMEOUT") {
+  if (
+    payload.status !== "OPTIMAL" &&
+    payload.status !== "HEURISTIC" &&
+    payload.status !== "FEASIBLE_TIMEOUT"
+  ) {
     throw new ApiClientError("The API returned an invalid optimization status");
   }
   const candidates = payload.candidates.map(parseRouteCandidate);
@@ -540,7 +581,8 @@ function parseRouteOptimizationResponse(payload: unknown): RouteOptimizationResp
     !Number.isSafeInteger(provenPrefixCount) ||
     provenPrefixCount < 0 ||
     provenPrefixCount > candidates.length ||
-    (payload.status === "OPTIMAL" && provenPrefixCount !== candidates.length)
+    (payload.status === "OPTIMAL" && provenPrefixCount !== candidates.length) ||
+    (payload.status === "HEURISTIC" && provenPrefixCount !== 0)
   ) {
     throw new ApiClientError("The API returned invalid proof metadata");
   }
@@ -623,6 +665,22 @@ export function createApiClient(
   return {
     async getHealth(options?: RequestOptions): Promise<HealthResponse> {
       return parseHealth(await request("/api/v1/health", { options }));
+    },
+
+    async listTags(options?: RequestOptions): Promise<Tag[]> {
+      return parseCatalogTags(await request("/api/v1/tags", { options }));
+    },
+
+    async listTagModifiers(
+      tagId: string,
+      options?: RequestOptions,
+    ): Promise<string[]> {
+      const id = parseTagId(tagId);
+      return parseModifiers(
+        await request(`/api/v1/tags/${encodeURIComponent(id)}/modifiers`, {
+          options,
+        }),
+      );
     },
 
     async listShoppingLists(options?: RequestOptions): Promise<ShoppingList[]> {

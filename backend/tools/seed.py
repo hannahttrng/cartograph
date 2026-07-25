@@ -7,13 +7,14 @@ import hashlib
 import math
 import os
 import random
+import sqlite3
 import sys
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 
 from backend.resolvers import connect_database, initialize_database, transaction
-from backend.types import Price, ProductCreate, StoreCreate
+from backend.types import Price, ProductCreate, StoreCreate, Tag
 
 
 WEEKS_OF_HISTORY = 156
@@ -30,16 +31,18 @@ class StoreSeed:
 @dataclass(frozen=True, slots=True)
 class ProductTemplate:
     name: str
-    tags: tuple[str, ...]
+    tag_names: tuple[str, ...]
     unit: str
     base_price: float
     quantity: float = 1.0
     seasonal_low_month: int | None = None
     seasonal_amplitude: float = 0.0
+    modifiers: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
 class SeedStats:
+    tags: int
     stores: int
     products: int
     price_histories: int
@@ -51,21 +54,23 @@ class SeedDataExistsError(RuntimeError):
 
 def _product(
     name: str,
-    tags: tuple[str, ...],
+    tag_names: tuple[str, ...],
     unit: str,
     base_price: float,
     quantity: float = 1.0,
     seasonal_low_month: int | None = None,
     seasonal_amplitude: float = 0.0,
+    modifiers: tuple[str, ...] = (),
 ) -> ProductTemplate:
     return ProductTemplate(
         name=name,
-        tags=tags,
+        tag_names=tag_names,
         unit=unit,
         base_price=base_price,
         quantity=quantity,
         seasonal_low_month=seasonal_low_month,
         seasonal_amplitude=seasonal_amplitude,
+        modifiers=modifiers,
     )
 
 
@@ -84,7 +89,15 @@ STORES = (
 
 
 UNIVERSAL_PRODUCTS = (
-    _product("Honeycrisp Apples", ("honeycrisp apple", "apple", "fruit"), "lbs", 1.99, seasonal_low_month=10, seasonal_amplitude=0.20),
+    _product(
+        "Honeycrisp Apples",
+        ("honeycrisp apple", "apple", "fruit"),
+        "lbs",
+        1.99,
+        seasonal_low_month=10,
+        seasonal_amplitude=0.20,
+        modifiers=("origin: washington",),
+    ),
     _product("Bananas", ("banana", "fruit"), "lbs", 0.69, seasonal_low_month=7, seasonal_amplitude=0.04),
     _product("Whole Milk", ("milk", "dairy"), "gallon", 4.29),
     _product("Large Eggs", ("egg", "dairy", "protein"), "count", 4.79, 12.0),
@@ -169,6 +182,53 @@ SPECIALTY_PRODUCTS = (
     _product("Sourdough Bread", ("sourdough", "bread", "bakery"), "loaf", 5.49),
     _product("Oat Milk", ("oat milk", "non dairy", "beverage"), "oz", 4.49, 64.0),
 )
+
+
+CATEGORY_TAG_DEFAULTS = {
+    "bakery": ("count", 1.0),
+    "berry": ("oz", 6.0),
+    "beverage": ("count", 1.0),
+    "bread": ("loaf", 1.0),
+    "chicken": ("lbs", 1.0),
+    "citrus": ("lbs", 1.0),
+    "cruciferous": ("lbs", 1.0),
+    "dairy": ("count", 1.0),
+    "fruit": ("lbs", 1.0),
+    "leafy": ("bunch", 1.0),
+    "meat": ("lbs", 1.0),
+    "pantry": ("count", 1.0),
+    "pasta": ("oz", 16.0),
+    "pea": ("lbs", 1.0),
+    "protein": ("lbs", 1.0),
+    "squash": ("lbs", 1.0),
+    "vegetable": ("lbs", 1.0),
+}
+
+SHOPPING_TAG_DEFAULTS = {
+    "artichoke": ("count", 1.0),
+    "bottled water": ("count", 6.0),
+    "corn tortilla": ("count", 12.0),
+    "egg": ("count", 6.0),
+    "hass avocado": ("count", 2.0),
+    "pomegranate": ("count", 1.0),
+}
+
+
+def build_tag_catalog() -> tuple[Tag, ...]:
+    defaults: dict[str, tuple[str, float]] = {}
+    for product in UNIVERSAL_PRODUCTS + SPECIALTY_PRODUCTS:
+        for tag in product.tag_names:
+            defaults.setdefault(tag, (product.unit, product.quantity))
+
+    defaults.update(CATEGORY_TAG_DEFAULTS)
+    defaults.update(SHOPPING_TAG_DEFAULTS)
+    return tuple(
+        Tag(tag=tag, defaultUnit=unit, defaultQuantity=quantity)
+        for tag, (unit, quantity) in sorted(defaults.items())
+    )
+
+
+TAGS = build_tag_catalog()
 
 
 def specialty_store_indices(product_index: int) -> tuple[int, ...]:
@@ -261,18 +321,43 @@ def generate_price_history(
     return tuple(history)
 
 
-def _contains_domain_data(connection: object) -> bool:
-    for table in ("stores", "products", "price_history", "routes"):
+def generate_modifiers(
+    product: ProductTemplate,
+    current_price: Price,
+) -> tuple[str, ...]:
+    modifiers = list(product.modifiers)
+    observed_month = datetime.fromtimestamp(
+        current_price.date, timezone.utc
+    ).month
+    if product.seasonal_low_month == observed_month:
+        modifiers.append("in season")
+    if current_price.sale:
+        modifiers.append("on sale")
+    return tuple(modifiers)
+
+
+def _contains_domain_data(connection: sqlite3.Connection) -> bool:
+    for table in ("tags", "stores", "products", "price_history", "routes"):
         row = connection.execute(f"SELECT EXISTS(SELECT 1 FROM {table})").fetchone()
         if row[0]:
             return True
     return False
 
 
-def _clear_domain_data(connection: object) -> None:
+def _clear_domain_data(connection: sqlite3.Connection) -> None:
+    connection.execute("DELETE FROM shopping_lists")
     connection.execute("DELETE FROM routes")
+    connection.execute("DELETE FROM product_modifiers")
+    connection.execute("DELETE FROM tag_products")
     connection.execute("DELETE FROM products")
     connection.execute("DELETE FROM stores")
+    connection.execute("DELETE FROM tags")
+
+
+def _required_lastrowid(cursor: sqlite3.Cursor) -> int:
+    if cursor.lastrowid is None:
+        raise RuntimeError("SQLite INSERT did not produce a row ID")
+    return cursor.lastrowid
 
 
 def seed_database(
@@ -287,6 +372,7 @@ def seed_database(
     connection = connect_database(database_path)
     product_count = 0
     price_history_count = 0
+    tag_products: dict[str, list[int]] = {tag.tag: [] for tag in TAGS}
 
     try:
         with transaction(connection):
@@ -297,6 +383,17 @@ def seed_database(
                     )
                 _clear_domain_data(connection)
 
+            connection.executemany(
+                """
+                INSERT INTO tags (tag, default_unit, default_quantity)
+                VALUES (?, ?, ?)
+                """,
+                (
+                    (tag.tag, tag.default_unit, tag.default_quantity)
+                    for tag in TAGS
+                ),
+            )
+
             store_ids: list[int] = []
             for store_seed in STORES:
                 store = StoreCreate(name=store_seed.name, address=store_seed.address)
@@ -304,13 +401,20 @@ def seed_database(
                     "INSERT INTO stores (name, address) VALUES (?, ?)",
                     (store.name, store.address),
                 )
-                store_ids.append(int(cursor.lastrowid))
+                store_ids.append(_required_lastrowid(cursor))
 
             for store_index, store_id in enumerate(store_ids):
                 for template in products_for_store(store_index):
+                    history = generate_price_history(
+                        template,
+                        store_index=store_index,
+                        as_of=effective_as_of,
+                        seed=seed,
+                    )
+                    current_price = history[-1]
                     product = ProductCreate(
                         name=template.name,
-                        tags=list(template.tags),
+                        modifiers=list(generate_modifiers(template, current_price)),
                         store=store_id,
                         unit=template.unit,
                     )
@@ -321,24 +425,21 @@ def seed_database(
                         """,
                         (product.name, product.store, product.unit),
                     )
-                    product_id = int(cursor.lastrowid)
+                    product_id = _required_lastrowid(cursor)
                     connection.executemany(
                         """
-                        INSERT INTO product_tags (product_id, tag, position)
+                        INSERT INTO product_modifiers
+                            (product_id, modifier, position)
                         VALUES (?, ?, ?)
                         """,
                         (
-                            (product_id, tag, position)
-                            for position, tag in enumerate(product.tags)
+                            (product_id, modifier, position)
+                            for position, modifier in enumerate(product.modifiers)
                         ),
                     )
+                    for tag_name in template.tag_names:
+                        tag_products[tag_name].append(product_id)
 
-                    history = generate_price_history(
-                        template,
-                        store_index=store_index,
-                        as_of=effective_as_of,
-                        seed=seed,
-                    )
                     connection.executemany(
                         """
                         INSERT INTO price_history
@@ -356,7 +457,6 @@ def seed_database(
                             for entry in history[:-1]
                         ),
                     )
-                    current_price = history[-1]
                     connection.execute(
                         """
                         UPDATE products
@@ -374,10 +474,23 @@ def seed_database(
                     )
                     product_count += 1
                     price_history_count += len(history) - 1
+
+            connection.executemany(
+                """
+                INSERT INTO tag_products (tag, product_id)
+                VALUES (?, ?)
+                """,
+                (
+                    (tag_name, product_id)
+                    for tag_name, product_ids in sorted(tag_products.items())
+                    for product_id in product_ids
+                ),
+            )
     finally:
         connection.close()
 
     return SeedStats(
+        tags=len(TAGS),
         stores=len(STORES),
         products=product_count,
         price_histories=price_history_count,
@@ -433,7 +546,7 @@ def main(arguments: list[str] | None = None) -> int:
         return 2
 
     print(
-        f"Seeded {stats.stores} stores, {stats.products} products, "
+        f"Seeded {stats.tags} tags, {stats.stores} stores, {stats.products} products, "
         f"and {stats.price_histories} price histories into {options.database}."
     )
     return 0
