@@ -125,7 +125,9 @@ async def post_assistant_chat(
         )
 
     try:
-        return AssistantChatResponse(message=await provider.answer_question(payload.message))
+        return AssistantChatResponse(
+            message=await provider.answer_question(payload.message, payload.messages)
+        )
     except RecipeImportProviderError as error:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(error)) from error
 

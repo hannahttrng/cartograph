@@ -51,8 +51,14 @@ export interface AssistantRecipeImportResponse {
   readonly warnings: string[];
 }
 
+export interface AssistantChatMessage {
+  readonly role: 'user' | 'assistant';
+  readonly content: string;
+}
+
 export interface AssistantChatRequest {
   readonly message: string;
+  readonly messages: AssistantChatMessage[];
 }
 
 export interface AssistantChatResponse {

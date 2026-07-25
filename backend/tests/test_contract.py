@@ -103,8 +103,9 @@ class _FakeRecipeImportProvider:
             warnings=[],
         )
 
-    async def answer_question(self, question: str) -> str:
+    async def answer_question(self, question: str, history: list[object]) -> str:
         assert question
+        assert len(history) <= 12
         return "Cartograph can help plan a grocery trip."
 
 
@@ -1572,7 +1573,10 @@ def test_carter_chat_endpoint_returns_provider_answer(tmp_path: object) -> None:
     ) as client:
         response = client.post(
             "/api/v1/assistant/chat",
-            json={"message": "How does this app work?"},
+            json={
+                "message": "How does this app work?",
+                "messages": [{"role": "user", "content": "I need dinner ideas."}],
+            },
         )
 
     assert response.status_code == 200

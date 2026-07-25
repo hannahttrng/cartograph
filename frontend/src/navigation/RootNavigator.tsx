@@ -37,7 +37,16 @@ export function RootNavigator() {
         options={{ title: 'Nearby Deals' }}
       />
       <Stack.Screen component={AccountScreen} name="Account" options={{ title: 'Account' }} />
-      <Stack.Screen component={MapScreen} name="Map" options={{ title: 'Route Map' }} />
+      <Stack.Screen
+        component={MapScreen}
+        name="Map"
+        options={{
+          headerShadowVisible: false,
+          headerTintColor: '#1F2933',
+          headerTitle: '',
+          headerTransparent: true,
+        }}
+      />
       <Stack.Screen
         component={RouteResultsScreen}
         name="RouteResults"

@@ -10,6 +10,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import type { RootStackParamList } from '../navigation/types';
+import type { Route } from '../types/models';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Home'>;
 
@@ -44,6 +45,21 @@ const recentActivity = [
   { name: 'Trader Joes Run', detail: '2 days ago', savings: '$20.53' },
   { name: 'Dinner Ingredients', detail: 'Last week', savings: '$12.84' },
 ];
+
+const mapPreviewRoute: Route = {
+  stores: [
+    {
+      name: 'Redlands Grocery Stop',
+      address: 'Downtown Redlands, CA',
+      latitude: 34.0571,
+      longitude: -117.1817,
+    },
+  ],
+  products: [],
+  distance: 3.2,
+  time: 12,
+  score: 92,
+};
 
 export function HomeScreen({ navigation }: Props) {
   return (
@@ -101,9 +117,14 @@ export function HomeScreen({ navigation }: Props) {
           <Text style={styles.locationLabel}>REDLANDS, CA</Text>
         </View>
         <Pressable
-          accessibilityLabel="View Redlands map preview"
+          accessibilityLabel="Open Redlands map full screen"
           accessibilityRole="button"
-          onPress={() => navigation.navigate('ShoppingList')}
+          onPress={() =>
+            navigation.navigate('Map', {
+              route: mapPreviewRoute,
+              routeId: 'home-map-preview',
+            })
+          }
           style={({ pressed }) => [styles.mapPreview, pressed && styles.pressed]}
         >
           <View style={[styles.road, styles.roadOne]} />

@@ -74,6 +74,49 @@ def test_recipe_provider_posts_to_the_exact_configured_responses_url() -> None:
   assert imported.ingredients[0].tags == ["ground turkey"]
 
 
+def test_meal_idea_prompt_requests_balanced_supporting_ingredients() -> None:
+  captured_request: httpx.Request | None = None
+
+  def handler(request: httpx.Request) -> httpx.Response:
+    nonlocal captured_request
+    captured_request = request
+    return httpx.Response(
+      200,
+      json={
+        "output_text": json.dumps(
+          {
+            "title": "High Protein Pasta",
+            "ingredients": [
+              {
+                "name": "Ground Beef",
+                "quantity": "1",
+                "unit": "lb",
+                "note": None,
+                "tags": ["ground beef"],
+              }
+            ],
+            "tags": ["ground beef"],
+            "warnings": ["Ingredients and quantities are suggested."],
+          }
+        )
+      },
+    )
+
+  provider = AzureOpenAIRecipeProvider(
+    inference_url="https://gateway.example.test/inference",
+    api_key="test-key",
+    transport=httpx.MockTransport(handler),
+  )
+
+  asyncio.run(provider.import_recipe("High protein pasta with ground beef"))
+
+  assert captured_request is not None
+  instructions = json.loads(captured_request.content)["instructions"]
+  assert "at least one compatible vegetable" in instructions
+  assert "optionally parmesan or cottage cheese" in instructions
+  assert "Do not add optional ingredients to a complete source" in instructions
+
+
 def test_recipe_provider_parses_chat_completions_recipe_response() -> None:
   recipe = {
     "title": "Taco Night",
@@ -107,21 +150,33 @@ def test_recipe_provider_parses_chat_completions_recipe_response() -> None:
   assert imported.ingredients[0].name == "Corn Tortillas"
 
 
-def test_carter_chat_returns_plain_model_text() -> None:
+def test_carter_chat_includes_grounded_conversation_guidance() -> None:
+  captured_request: httpx.Request | None = None
+
+  def handler(request: httpx.Request) -> httpx.Response:
+    nonlocal captured_request
+    captured_request = request
+    return httpx.Response(
+      200,
+      json={"output": [{"content": [{"text": "Cartograph turns a list into route options."}]}]},
+    )
+
   provider = AzureOpenAIRecipeProvider(
     inference_url="https://gateway.example.test/responses",
     api_key="test-key",
-    transport=httpx.MockTransport(
-      lambda _request: httpx.Response(
-        200,
-        json={"output": [{"content": [{"text": "Cartograph turns a list into route options."}]}]},
-      )
-    ),
+    transport=httpx.MockTransport(handler),
   )
 
-  answer = asyncio.run(provider.answer_question("How does Cartograph work?"))
+  answer = asyncio.run(provider.answer_question(
+    "How does Cartograph work?",
+    [],
+  ))
 
   assert answer == "Cartograph turns a list into route options."
+  assert captured_request is not None
+  instructions = json.loads(captured_request.content)["instructions"]
+  assert "ask one concise clarifying question" in instructions
+  assert "Never imply a list, route, store comparison" in instructions
 
 
 def test_recipe_provider_explains_a_missing_gateway_route() -> None:
@@ -132,4 +187,4 @@ def test_recipe_provider_explains_a_missing_gateway_route() -> None:
   )
 
   with pytest.raises(RecipeImportProviderError, match="CARTER_API_URL"):
-    asyncio.run(provider.answer_question("What can you do?"))
+    asyncio.run(provider.answer_question("What can you do?", []))

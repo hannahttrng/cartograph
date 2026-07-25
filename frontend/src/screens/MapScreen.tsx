@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 
 import { getMap, toApiError } from '../api';
 import { RouteMap } from '../components/map/RouteMap';
@@ -62,37 +61,28 @@ export function MapScreen({ route }: Props) {
       : 'routeSelected';
 
   return (
-    <SafeAreaView edges={['bottom']} style={styles.screen}>
-      <ScrollView contentContainerStyle={styles.content}>
-        <Text accessibilityRole="header" style={styles.title}>
-          Route Overview
-        </Text>
-        <Text style={styles.subtitle}>
-          Your selected shopping route is listed below.
-        </Text>
+    <View style={styles.screen}>
+      <RouteMap mapData={mapData} state={mapState} />
 
-        {isLoading ? (
-          <View style={styles.status}>
-            <ActivityIndicator color="#243B53" />
-            <Text accessibilityLiveRegion="polite" style={styles.statusText}>
-              Loading route data...
-            </Text>
-          </View>
-        ) : null}
+      {isLoading ? (
+        <View pointerEvents="none" style={styles.status}>
+          <ActivityIndicator color="#243B53" />
+          <Text accessibilityLiveRegion="polite" style={styles.statusText}>
+            Loading route data...
+          </Text>
+        </View>
+      ) : null}
 
-        <RouteMap mapData={mapData} state={mapState} />
-
-        {errorMessage ? (
-          <View style={styles.errorState}>
-            <Text accessibilityLiveRegion="assertive" style={styles.errorText}>
-              {errorMessage}
-            </Text>
-            <Pressable accessibilityRole="button" onPress={loadMap} style={styles.retryButton}>
-              <Text style={styles.retryButtonText}>Try Again</Text>
-            </Pressable>
-          </View>
-        ) : null}
-      </ScrollView>
-    </SafeAreaView>
+      {errorMessage ? (
+        <View style={styles.errorState}>
+          <Text accessibilityLiveRegion="assertive" numberOfLines={2} style={styles.errorText}>
+            {errorMessage}
+          </Text>
+          <Pressable accessibilityRole="button" onPress={loadMap} style={styles.retryButton}>
+            <Text style={styles.retryButtonText}>Try Again</Text>
+          </Pressable>
+        </View>
+      ) : null}
+    </View>
   );
 }
