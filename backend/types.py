@@ -55,7 +55,23 @@ class ApiModel(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
-class PriceHistory(ApiModel):
+class Tag(ApiModel):
+    tag: str
+    default_unit: str = Field(alias="defaultUnit")
+    default_quantity: PositiveFiniteFloat = Field(alias="defaultQuantity")
+
+    @field_validator("tag")
+    @classmethod
+    def normalize_tag(cls, tag: str) -> str:
+        return _normalize_text(tag, "tag")
+
+    @field_validator("default_unit")
+    @classmethod
+    def normalize_default_unit(cls, default_unit: str) -> str:
+        return _normalize_text(default_unit, "defaultUnit")
+
+
+class Price(ApiModel):
     date: NonNegativeFiniteFloat
     price: NonNegativeFiniteFloat
     quantity: PositiveFiniteFloat
@@ -72,7 +88,7 @@ class ProductCreate(ApiModel):
     tags: list[str]
     store: PositiveInt
     unit: str
-    price_history: list[PriceHistory] = Field(default_factory=list, alias="priceHistory")
+    price_history: list[Price] = Field(default_factory=list, alias="priceHistory")
 
     @field_validator("name")
     @classmethod
@@ -92,7 +108,7 @@ class ProductCreate(ApiModel):
 
     @field_validator("price_history")
     @classmethod
-    def order_price_history(cls, history: list[PriceHistory]) -> list[PriceHistory]:
+    def order_price_history(cls, history: list[Price]) -> list[Price]:
         dates = [entry.date for entry in history]
         _require_unique(dates, "price history dates")
         return sorted(history, key=lambda entry: entry.date)
@@ -100,19 +116,16 @@ class ProductCreate(ApiModel):
 
 class Product(ProductCreate):
     id: PositiveInt
-    current_price: PriceHistory | None = Field(default=None, alias="currentPrice")
+    current_price: Price | None = Field(default=None, alias="currentPrice")
 
     @model_validator(mode="after")
     def validate_current_price(self) -> Self:
         if self.current_price is None:
             return self
 
-        for history_entry in self.price_history:
-            if history_entry == self.current_price:
-                self.current_price = history_entry
-                return self
-
-        raise ValueError("currentPrice must reference an entry in priceHistory")
+        if self.price_history and self.price_history[-1].date >= self.current_price.date:
+            raise ValueError("currentPrice must be newer than every priceHistory entry")
+        return self
 
 
 class StoreCreate(ApiModel):

@@ -140,7 +140,7 @@ export function RouteResultsScreen({ navigation, route }: Props) {
                     </View>
                   ))
                 ) : (
-                  items.map((item) => (
+                  items.map((item: string) => (
                     <Text key={item} style={styles.requestedItem}>
                       {item}
                     </Text>

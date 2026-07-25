@@ -13,7 +13,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 
 from backend.resolvers import connect_database, initialize_database, transaction
-from backend.types import PriceHistory, ProductCreate, StoreCreate
+from backend.types import Price, ProductCreate, StoreCreate
 
 
 WEEKS_OF_HISTORY = 156
@@ -228,11 +228,11 @@ def generate_price_history(
     store_index: int,
     as_of: date,
     seed: int = DEFAULT_RANDOM_SEED,
-) -> tuple[PriceHistory, ...]:
+) -> tuple[Price, ...]:
     generator = _stable_random(seed, store_index, product.name)
     store_multiplier = 1 + (store_index - 4.5) * 0.008 + generator.uniform(-0.025, 0.025)
     weekly_drift = 0.0
-    history: list[PriceHistory] = []
+    history: list[Price] = []
 
     for observation_index, observed_on in enumerate(observation_dates(as_of)):
         if observation_index % OBSERVATIONS_PER_WEEK == 0:
@@ -250,7 +250,7 @@ def generate_price_history(
             observed_on, time.min, tzinfo=timezone.utc
         ).timestamp()
         history.append(
-            PriceHistory(
+            Price(
                 date=observed_at,
                 price=package_price,
                 quantity=product.quantity,
@@ -271,7 +271,6 @@ def _contains_domain_data(connection: object) -> bool:
 
 def _clear_domain_data(connection: object) -> None:
     connection.execute("DELETE FROM routes")
-    connection.execute("UPDATE products SET current_price_date = NULL")
     connection.execute("DELETE FROM products")
     connection.execute("DELETE FROM stores")
 
@@ -354,15 +353,27 @@ def seed_database(
                                 entry.quantity,
                                 entry.sale,
                             )
-                            for entry in history
+                            for entry in history[:-1]
                         ),
                     )
+                    current_price = history[-1]
                     connection.execute(
-                        "UPDATE products SET current_price_date = ? WHERE id = ?",
-                        (history[-1].date, product_id),
+                        """
+                        UPDATE products
+                        SET current_price_date = ?, current_price = ?,
+                            current_price_quantity = ?, current_price_sale = ?
+                        WHERE id = ?
+                        """,
+                        (
+                            current_price.date,
+                            current_price.price,
+                            current_price.quantity,
+                            current_price.sale,
+                            product_id,
+                        ),
                     )
                     product_count += 1
-                    price_history_count += len(history)
+                    price_history_count += len(history) - 1
     finally:
         connection.close()
 

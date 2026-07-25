@@ -1,6 +1,12 @@
 export type EntityId = number;
 
-export interface PriceHistory {
+export interface Tag {
+  tag: string;
+  defaultUnit: string;
+  defaultQuantity: number;
+}
+
+export interface Price {
   date: number;
   price: number;
   quantity: number;
@@ -13,8 +19,8 @@ export interface Product {
   name: string;
   tags: string[];
   store: EntityId;
-  currentPrice: PriceHistory | null;
-  priceHistory: PriceHistory[];
+  currentPrice: Price | null;
+  priceHistory: Price[];
   unit: string;
 }
 

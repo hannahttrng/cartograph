@@ -54,12 +54,17 @@ def test_catalog_loads_only_current_products_and_preserves_matching_edges(
             ],
         )
         connection.executemany(
-            "INSERT INTO price_history (product_id, date, price) VALUES (?, 100, ?)",
+            "INSERT INTO price_history (product_id, date, price) VALUES (?, 50, ?)",
             [(20, 4.25), (10, 1.00), (30, 3.75)],
         )
         connection.executemany(
-            "UPDATE products SET current_price_date = 100 WHERE id = ?",
-            [(20,), (30,)],
+            """
+            UPDATE products
+            SET current_price_date = 100, current_price = ?,
+                current_price_quantity = 1, current_price_sale = 0
+            WHERE id = ?
+            """,
+            [(4.25, 20), (3.75, 30)],
         )
 
         catalog = load_optimization_catalog(connection, ["milk", "dairy", "milk"])

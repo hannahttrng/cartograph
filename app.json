@@ -13,6 +13,9 @@
         "projectId": "445f2435-5ef1-4057-80b2-a3ce563eae5f"
       }
     },
-    "owner": "hannahtruongs-team"
+    "owner": "hannahtruongs-team",
+    "android": {
+      "package": "com.cartograph.app"
+    }
   }
 }
