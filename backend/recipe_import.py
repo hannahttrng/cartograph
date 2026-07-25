@@ -15,6 +15,7 @@ import httpx
 from pydantic import ValidationError
 
 from backend.types import (
+    AssistantChatMessage,
     AssistantRecipeImportRequest,
     AssistantRecipeImportResponse,
     RecipeSourceType,
@@ -49,7 +50,11 @@ class RecipeImportProvider(Protocol):
         """Extract grocery ingredients and normalized catalog-friendly tags."""
         ...
 
-    async def answer_question(self, question: str) -> str:
+    async def answer_question(
+        self,
+        question: str,
+        history: list[AssistantChatMessage],
+    ) -> str:
         """Answer a Cartograph question without creating a shopping list."""
         ...
 
@@ -265,7 +270,9 @@ class AzureOpenAIRecipeProvider:
 For this task, convert the user's recipe content or meal request into structured grocery ingredients.
 Return JSON only with exactly this object shape: {{"title": string|null, "ingredients": [{{"name": string, "quantity": string|null, "unit": string|null, "note": string|null, "tags": string[]}}], "tags": string[], "warnings": string[]}}.
 
-If the input contains a complete recipe, caption, transcript, OCR text, or ingredient list, extract its ingredients and preserve stated measurements. If measurements are missing, estimate realistic amounts and add a warning that quantities were estimated. If the input is a meal idea, generate a compact, complete recipe grocery draft and add a warning that ingredients and quantities are suggested. Apply requested serving counts, dietary substitutions, and meal goals.
+If the input contains a complete recipe, caption, transcript, OCR text, or ingredient list, extract its ingredients and preserve stated measurements. If measurements are missing, estimate realistic amounts and add a warning that quantities were estimated. Do not add optional ingredients to a complete source unless the user requests substitutions or additions.
+
+If the input is a meal idea, generate a compact, balanced recipe grocery draft and add a warning that ingredients and quantities are suggested. Preserve the explicitly requested main ingredients, then fill only the missing practical components: a starch or base when needed, a sauce or seasoning, and at least one compatible vegetable for an entree. Add a compatible cheese or dairy component only when it naturally fits the dish or the user's dietary goal; otherwise omit it. For example, high-protein pasta with ground beef should include pasta, a tomato-based sauce, a vegetable such as spinach, broccoli, or bell pepper, and optionally parmesan or cottage cheese. Do not add unrelated sides, pantry staples, or duplicate proteins. Apply requested serving counts, dietary substitutions, and meal goals.
 
 Use the note field for preparation details or a concise estimated-price note only when useful. Do not claim a shopping list was created. Tags must be lowercase catalog-friendly grocery search phrases. Include at least one tag for every ingredient and include every unique ingredient tag in the top-level tags array. Use warnings for estimates, unavailable source details, and location-dependent pricing. Because this is strict JSON, do not append conversational text or next actions."""
         try:
@@ -282,11 +289,27 @@ Use the note field for preparation details or a concise estimated-price note onl
                 "Carter returned an invalid recipe result. Try a more specific recipe or meal idea."
             ) from error
 
-    async def answer_question(self, question: str) -> str:
+    async def answer_question(
+        self,
+        question: str,
+        history: list[AssistantChatMessage],
+    ) -> str:
         instructions = f"""{CARTER_SYSTEM_PROMPT}
 
-    For help questions, explain concisely how users can add groceries, import recipes, create shopping lists, plan meals, compare prices, and optimize routes. Include a brief example when useful. If the user asks for a recipe, direct them to Recipe mode so Carter can produce an editable shopping list. End with one concrete next action."""
-        return await self._request_text(instructions=instructions, user_input=question)
+For chat questions, answer the user's current request using the supplied conversation only as context. If the request is underspecified and a safe, useful answer depends on a preference, ask one concise clarifying question instead of guessing. Keep answers under 180 words, use short bullets only when they improve scanning, and end with one concrete next action.
+
+Explain Cartograph features only as supported by the application: users can build a grocery list, import a recipe into an editable ingredient list, and request route candidates when the backend provides them. Treat prices, inventory, travel time, traffic, pantry contents, and route results as unknown unless the user supplied them in this conversation or they appear in application data. Never imply a list, route, store comparison, or other app action was completed unless the conversation contains its confirmed result.
+
+For recipe creation or ingredient extraction, direct the user to Build list mode, which creates an editable shopping list. For general meal planning, give practical grocery guidance, clearly label estimates, and surface dietary, budget, serving-size, or time constraints when relevant."""
+        history_text = "\n".join(
+            f"{message.role}: {message.content}" for message in history
+        )
+        user_input = (
+            f"Conversation history:\n{history_text}\n\nCurrent user question:\n{question}"
+            if history_text
+            else question
+        )
+        return await self._request_text(instructions=instructions, user_input=user_input)
 
 
 def _extract_model_text(payload: object) -> str:

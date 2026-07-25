@@ -15,3 +15,12 @@ export const USE_MOCK_DATA = parseBoolean(
 );
 
 export const API_TIMEOUT_MS = 15_000;
+
+export const ARCGIS_WEB_MAP_ITEM_ID =
+  process.env.EXPO_PUBLIC_ARCGIS_WEB_MAP_ITEM_ID?.trim() ||
+  '1114223c46f948c4b17a6ddb8c3e4865';
+
+export const ARCGIS_PORTAL_URL = (
+  process.env.EXPO_PUBLIC_ARCGIS_PORTAL_URL?.trim() ||
+  'https://intern-hackathon.maps.arcgis.com'
+).replace(/\/+$/, '');

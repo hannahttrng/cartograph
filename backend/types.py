@@ -3,7 +3,7 @@
 from decimal import Decimal, ROUND_HALF_UP
 from enum import Enum
 from math import isfinite
-from typing import Annotated, Self, TypeVar
+from typing import Annotated, Literal, Self, TypeVar
 
 from pydantic import (
     BaseModel,
@@ -495,8 +495,24 @@ class AssistantRecipeImportRequest(ApiModel):
         return normalized
 
 
+class AssistantChatMessage(ApiModel):
+    role: Literal["user", "assistant"]
+    content: str
+
+    @field_validator("content")
+    @classmethod
+    def validate_content(cls, content: str) -> str:
+        normalized = content.strip()
+        if not normalized:
+            raise ValueError("content must not be blank")
+        if len(normalized) > 4_000:
+            raise ValueError("content must not exceed 4000 characters")
+        return normalized
+
+
 class AssistantChatRequest(ApiModel):
     message: str
+    messages: list[AssistantChatMessage] = Field(default_factory=list, max_length=12)
 
     @field_validator("message")
     @classmethod

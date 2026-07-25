@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import type { MapRouteData, MapState } from '../../types/maps';
@@ -9,9 +10,13 @@ interface RouteMapProps {
   state: MapState;
 }
 
-const ARC_GIS_MAP_ENABLED = false;
-
 export function RouteMap({ mapData, state }: RouteMapProps) {
+  const [mapFailed, setMapFailed] = useState(false);
+
+  useEffect(() => {
+    setMapFailed(false);
+  }, [mapData.routeId]);
+
   if (state === 'loading') {
     return (
       <View style={styles.status}>
@@ -20,34 +25,29 @@ export function RouteMap({ mapData, state }: RouteMapProps) {
     );
   }
 
-  if (ARC_GIS_MAP_ENABLED) {
-    return <ArcGISMapAdapter mapData={mapData} />;
+  if (!mapFailed) {
+    return <ArcGISMapAdapter mapData={mapData} onError={() => setMapFailed(true)} />;
   }
 
   return (
-    <View>
-      {state === 'mapUnavailable' ? (
-        <Text accessibilityLiveRegion="assertive" style={styles.unavailableText}>
-          Map unavailable. Showing route details instead.
-        </Text>
-      ) : (
-        <Text style={styles.unavailableText}>
-          Interactive mapping will be available when ArcGIS is connected.
-        </Text>
-      )}
+    <View style={styles.fallback}>
+      <Text accessibilityLiveRegion="assertive" style={styles.unavailableText}>
+        Map unavailable. Showing route details instead.
+      </Text>
       <RouteMapFallback mapData={mapData} />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  fallback: {
+    flex: 1,
+    padding: 20,
+  },
   status: {
     alignItems: 'center',
-    borderColor: '#D9E2EC',
-    borderRadius: 8,
-    borderWidth: 1,
+    flex: 1,
     justifyContent: 'center',
-    minHeight: 180,
     padding: 20,
   },
   statusText: {

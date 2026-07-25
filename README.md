@@ -63,6 +63,20 @@ use mock data instead:
 EXPO_PUBLIC_USE_MOCK_DATA=true npm start
 ```
 
+The route map embeds the hackathon ArcGIS Web Map without requiring backend
+route geometry. Override Caitlin's Web Map item or organization portal before
+starting Expo when those resources change:
+
+```sh
+EXPO_PUBLIC_ARCGIS_WEB_MAP_ITEM_ID="1114223c46f948c4b17a6ddb8c3e4865" \
+EXPO_PUBLIC_ARCGIS_PORTAL_URL="https://intern-hackathon.maps.arcgis.com" \
+npm start
+```
+
+The Web Map and all referenced layers must be shared with the signed-in user or
+publicly accessible. If the embedded map cannot load, Cartograph retains the
+existing text route-details fallback.
+
 ## Backend
 
 The backend scaffold uses Python FastAPI, Pydantic, and SQLite. The React Native
@@ -159,6 +173,11 @@ It returns a title, structured ingredient names, optional quantities and units,
 normalized grocery tags, and any warnings. Recipe URLs must resolve to a public
 host, return HTML, complete within three redirects, and fit within a 1 MB
 response limit. When a URL cannot be read, paste the recipe text instead.
+
+Carter chat accepts a current `message` plus up to 12 prior `messages` for
+short-lived conversational context. Each history item has a `role` of `user` or
+`assistant` and a non-empty `content` value. The client owns this transcript;
+the backend does not persist chat history.
 
 ### Product pricing
 
