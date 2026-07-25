@@ -1,0 +1,28 @@
+{
+  "name": "cartograph",
+  "version": "0.1.0",
+  "private": true,
+  "main": "index.ts",
+  "scripts": {
+    "ios": "expo run:ios",
+    "postinstall": "node scripts/patch-expo-modules-jsi.js",
+    "start": "expo start",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@react-native-async-storage/async-storage": "^3.1.1",
+    "@react-navigation/native": "^7.3.14",
+    "@react-navigation/native-stack": "^7.18.6",
+    "axios": "^1.11.0",
+    "expo": "~56.0.17",
+    "react": "19.2.3",
+    "react-native": "0.85.3",
+    "react-native-safe-area-context": "~5.7.0",
+    "react-native-screens": "~4.26.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.1",
+    "@types/react": "~19.2.4",
+    "typescript": "~6.0.3"
+  }
+}

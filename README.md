@@ -2,6 +2,30 @@
 
 ESRI 2026 Intern Hackathon project.
 
+## React Native Frontend Structure
+
+```text
+cartography/
+├── assets/
+│   ├── icons/
+│   └── images/
+├── src/
+│   ├── api/
+│   ├── components/
+│   │   ├── ai/
+│   │   ├── common/
+│   │   ├── list/
+│   │   └── route/
+│   ├── constants/
+│   ├── hooks/
+│   ├── navigation/
+│   ├── screens/
+│   ├── types/
+│   └── utils/
+├── tests/
+└── README.md
+```
+
 ## Backend
 
 The backend scaffold uses Python FastAPI, Pydantic, and SQLite. The React Native
