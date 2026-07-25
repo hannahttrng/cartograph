@@ -26,6 +26,43 @@ cartography/
 └── README.md
 ```
 
+## Frontend
+
+Install the Expo dependencies from the repository root:
+
+```sh
+cd "/Users/han15121/Library/CloudStorage/OneDrive-Esri/cartography"
+npm install
+```
+
+Start the Expo development server:
+
+```sh
+npm start
+```
+
+With Xcode and an iOS Simulator installed, build and open the iOS app directly:
+
+```sh
+npm run ios
+```
+
+Start the FastAPI backend before testing Carter or any live API functionality.
+The iOS Simulator uses `http://localhost:8000` by default. When running the app
+on a physical phone, set the backend to your computer's LAN address before
+starting Expo, replacing the example address with your computer's local IP:
+
+```sh
+EXPO_PUBLIC_API_BASE_URL="http://192.168.1.50:8000" npm start
+```
+
+The phone and computer must be on the same network. For an offline UI demo,
+use mock data instead:
+
+```sh
+EXPO_PUBLIC_USE_MOCK_DATA=true npm start
+```
+
 ## Backend
 
 The backend scaffold uses Python FastAPI, Pydantic, and SQLite. The React Native
@@ -35,10 +72,28 @@ client contract is written in TypeScript.
 
 Python 3.11 or newer is required.
 
+On macOS, install Python 3.11 outside the repository with Homebrew, then create
+the project virtual environment inside this repository:
+
+```sh
+brew install python@3.11
+cd "/Users/han15121/Library/CloudStorage/OneDrive-Esri/cartography"
+"$(brew --prefix python@3.11)/bin/python3.11" -m venv .venv
+source .venv/bin/activate
+python -m pip install -r backend/requirements.txt
+```
+
+On Windows PowerShell:
+
 ```powershell
 python -m venv .venv
 .venv\Scripts\Activate.ps1
 python -m pip install -r backend/requirements.txt
+```
+
+With the virtual environment active, start the server:
+
+```sh
 python -m uvicorn backend.index:app --reload
 ```
 
@@ -46,6 +101,8 @@ The API is available at `http://127.0.0.1:8000`. Useful initial endpoints are:
 
 - Health: `GET http://127.0.0.1:8000/api/v1/health`
 - Shopping Lists: `GET http://127.0.0.1:8000/api/v1/shopping-lists`
+- Recipe Import: `POST http://127.0.0.1:8000/api/v1/assistant/recipe-import`
+- Carter chat: `POST http://127.0.0.1:8000/api/v1/assistant/chat`
 - OpenAPI UI: `http://127.0.0.1:8000/docs`
 
 By default, startup creates `cartograph.db` in the repository root. Override
@@ -54,6 +111,54 @@ the location before starting the server when needed:
 ```powershell
 $env:CARTOGRAPH_DB_PATH = "C:\data\cartograph.db"
 ```
+
+### Azure OpenAI recipe import
+
+Recipe import and Carter chat keep credentials on the backend. Set
+`CARTER_API_URL` to the **exact POST inference URL** from the Esri/Azure gateway
+documentation or its working curl example. It must include any required path
+and query parameters. Never place the Azure key in an Expo environment variable
+or commit `.env`.
+
+```dotenv
+CARTER_API_URL="https://gateway.example.com/complete/inference/path"
+AZURE_OPENAI_API_KEY="your-key"
+# Use responses for OpenAI Responses-shaped payloads, or chat-completions for
+# OpenAI Chat Completions-shaped payloads.
+CARTER_API_MODE="responses"
+```
+
+`AZURE_OPENAI_ENDPOINT` remains supported for compatibility, but it is treated
+as the complete inference URL and no path is appended automatically. A `502`
+stating that the gateway endpoint was not found means the configured URL is not
+the gateway's actual inference endpoint.
+
+On macOS or Linux:
+
+```sh
+set -a
+source .env
+set +a
+python -m uvicorn backend.index:app --reload
+```
+
+Restart Uvicorn after creating or changing `.env`. A successful configuration
+allows `POST /api/v1/assistant/recipe-import`; a `503 Carter is not configured
+yet.` response means the server was started without one or both variables.
+
+The recipe-import endpoint accepts pasted recipe text or a public recipe URL:
+
+```json
+{
+	"source": "Tacos with ground beef, corn tortillas, tomatoes, and cilantro",
+	"sourceType": "text"
+}
+```
+
+It returns a title, structured ingredient names, optional quantities and units,
+normalized grocery tags, and any warnings. Recipe URLs must resolve to a public
+host, return HTML, complete within three redirects, and fit within a 1 MB
+response limit. When a URL cannot be read, paste the recipe text instead.
 
 ### Product pricing
 

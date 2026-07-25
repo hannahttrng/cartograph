@@ -20,11 +20,14 @@ type Props = NativeStackScreenProps<RootStackParamList, 'NewShoppingList'>;
 
 const normalizeValue = (value: string): string => value.trim().replace(/\s+/g, ' ');
 
-export function NewShoppingListScreen({ navigation }: Props) {
-  const [listName, setListName] = useState('Untitled list');
+export function NewShoppingListScreen({ navigation, route }: Props) {
+  const initialItems = route.params?.initialItems ?? [];
+  const [listName, setListName] = useState(route.params?.title ?? 'Untitled list');
   const [itemName, setItemName] = useState('');
   const [unitPrice, setUnitPrice] = useState('');
-  const [items, setItems] = useState<SavedShoppingListItem[]>([]);
+  const [items, setItems] = useState<SavedShoppingListItem[]>(() =>
+    initialItems.map((name) => ({ name, unitPrice: 0 })),
+  );
   const [collections, setCollections] = useState<ShoppingListCollection[]>([]);
   const [savedLists, setSavedLists] = useState<SavedShoppingList[]>([]);
   const [selectedCollectionId, setSelectedCollectionId] = useState<string | null>(null);
@@ -205,7 +208,9 @@ export function NewShoppingListScreen({ navigation }: Props) {
             {items.map((item) => (
               <View key={item.name.toLocaleLowerCase()} style={styles.itemRow}>
                 <Text style={styles.itemName}>{item.name}</Text>
-                <Text style={styles.itemPrice}>${item.unitPrice.toFixed(2)}</Text>
+                <Text style={styles.itemPrice}>
+                  {item.unitPrice > 0 ? `$${item.unitPrice.toFixed(2)}` : 'Price pending'}
+                </Text>
                 <Pressable
                   accessibilityLabel={`Remove ${item.name}`}
                   accessibilityRole="button"

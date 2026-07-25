@@ -10,6 +10,7 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
 from backend.controllers import RouteOptimizationHttpError, router
+from backend.recipe_import import AzureOpenAIRecipeProvider, RecipeImportProvider
 from backend.resolvers import initialize_database
 from backend.route_optimizer import RouteScorePolicy, SolverSettings
 from backend.types import ApiError
@@ -27,6 +28,7 @@ def create_app(
     travel_matrix_provider: "TravelMatrixProvider | None" = None,
     route_score_policy: RouteScorePolicy | None = None,
     solver_settings: SolverSettings | None = None,
+    recipe_import_provider: RecipeImportProvider | None = None,
 ) -> FastAPI:
     configured_path = database_path or os.getenv("CARTOGRAPH_DB_PATH")
     resolved_path = Path(configured_path) if configured_path else DEFAULT_DATABASE_PATH
@@ -38,6 +40,9 @@ def create_app(
         application.state.travel_matrix_provider = travel_matrix_provider
         application.state.route_score_policy = route_score_policy or RouteScorePolicy()
         application.state.solver_settings = solver_settings or SolverSettings()
+        application.state.recipe_import_provider = (
+            recipe_import_provider or AzureOpenAIRecipeProvider.from_environment()
+        )
         yield
 
     application = FastAPI(

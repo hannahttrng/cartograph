@@ -471,6 +471,104 @@ class HealthResponse(ApiModel):
     status: str = "ok"
 
 
+class RecipeSourceType(str, Enum):
+    AUTO = "auto"
+    TEXT = "text"
+    URL = "url"
+
+
+class AssistantRecipeImportRequest(ApiModel):
+    source: str
+    source_type: RecipeSourceType = Field(
+        default=RecipeSourceType.AUTO,
+        alias="sourceType",
+    )
+
+    @field_validator("source")
+    @classmethod
+    def validate_source(cls, source: str) -> str:
+        normalized = source.strip()
+        if not normalized:
+            raise ValueError("source must not be blank")
+        if len(normalized) > 20_000:
+            raise ValueError("source must not exceed 20000 characters")
+        return normalized
+
+
+class AssistantChatRequest(ApiModel):
+    message: str
+
+    @field_validator("message")
+    @classmethod
+    def validate_message(cls, message: str) -> str:
+        normalized = message.strip()
+        if not normalized:
+            raise ValueError("message must not be blank")
+        if len(normalized) > 4_000:
+            raise ValueError("message must not exceed 4000 characters")
+        return normalized
+
+
+class AssistantChatResponse(ApiModel):
+    message: str
+
+    @field_validator("message")
+    @classmethod
+    def validate_message(cls, message: str) -> str:
+        return _normalize_display_text(message, "message")
+
+
+class AssistantRecipeIngredient(ApiModel):
+    name: str
+    quantity: str | None = None
+    unit: str | None = None
+    note: str | None = None
+    tags: list[str]
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, name: str) -> str:
+        return _normalize_display_text(name, "ingredient name")
+
+    @field_validator("quantity", "unit", "note")
+    @classmethod
+    def normalize_optional_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return _normalize_display_text(value, "ingredient detail")
+
+    @field_validator("tags")
+    @classmethod
+    def normalize_tags(cls, tags: list[str]) -> list[str]:
+        normalized = [_normalize_text(tag, "tag") for tag in tags]
+        return list(_require_unique(normalized, "ingredient tags"))
+
+
+class AssistantRecipeImportResponse(ApiModel):
+    title: str | None = None
+    ingredients: list[AssistantRecipeIngredient] = Field(min_length=1)
+    tags: list[str]
+    warnings: list[str] = Field(default_factory=list)
+
+    @field_validator("title")
+    @classmethod
+    def validate_title(cls, title: str | None) -> str | None:
+        if title is None:
+            return None
+        return _normalize_display_text(title, "title")
+
+    @field_validator("tags")
+    @classmethod
+    def normalize_tags(cls, tags: list[str]) -> list[str]:
+        normalized = [_normalize_text(tag, "tag") for tag in tags]
+        return list(_require_unique(normalized, "tags"))
+
+    @field_validator("warnings")
+    @classmethod
+    def normalize_warnings(cls, warnings: list[str]) -> list[str]:
+        return [_normalize_display_text(warning, "warning") for warning in warnings]
+
+
 class ApiError(ApiModel):
     detail: str
     error_code: str | None = Field(default=None, alias="errorCode")

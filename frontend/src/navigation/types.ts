@@ -3,9 +3,15 @@ import type { Route } from '../types/models';
 export type RootStackParamList = {
   Home: undefined;
   ShoppingList: undefined;
-  NewShoppingList: undefined;
+  NewShoppingList:
+    | {
+        initialItems?: string[];
+        title?: string;
+      }
+    | undefined;
   AiAssistant: undefined;
   Account: undefined;
+  NearbyDeals: undefined;
   Map: {
     route: Route;
     routeId: string;

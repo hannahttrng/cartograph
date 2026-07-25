@@ -29,6 +29,36 @@ export interface GetMapResponse {
   readonly stores: Store[];
 }
 
+export type RecipeSourceType = 'auto' | 'text' | 'url';
+
+export interface AssistantRecipeImportRequest {
+  readonly source: string;
+  readonly sourceType: RecipeSourceType;
+}
+
+export interface AssistantRecipeIngredient {
+  readonly name: string;
+  readonly quantity: string | null;
+  readonly unit: string | null;
+  readonly note: string | null;
+  readonly tags: string[];
+}
+
+export interface AssistantRecipeImportResponse {
+  readonly title: string | null;
+  readonly ingredients: AssistantRecipeIngredient[];
+  readonly tags: string[];
+  readonly warnings: string[];
+}
+
+export interface AssistantChatRequest {
+  readonly message: string;
+}
+
+export interface AssistantChatResponse {
+  readonly message: string;
+}
+
 export interface ApiErrorBody {
   readonly message?: string;
   readonly detail?: string;

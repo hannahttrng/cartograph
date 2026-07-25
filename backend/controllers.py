@@ -26,7 +26,16 @@ from backend.route_optimizer import (
     OptimizationFailedError,
     optimize_routes,
 )
+from backend.recipe_import import (
+    RecipeImportProviderError,
+    RecipeImportSourceError,
+    resolve_recipe_source,
+)
 from backend.types import (
+    AssistantChatRequest,
+    AssistantChatResponse,
+    AssistantRecipeImportRequest,
+    AssistantRecipeImportResponse,
     HealthResponse,
     RouteOptimizationErrorCode,
     RouteOptimizationRequest,
@@ -72,6 +81,53 @@ def _optimization_error(
     status_code: int, detail: str, error_code: RouteOptimizationErrorCode
 ) -> RouteOptimizationHttpError:
     return RouteOptimizationHttpError(status_code, detail, error_code)
+
+
+@router.post(
+    "/assistant/recipe-import",
+    response_model=AssistantRecipeImportResponse,
+    tags=["assistant"],
+)
+async def post_assistant_recipe_import(
+    request: Request,
+    payload: AssistantRecipeImportRequest,
+) -> AssistantRecipeImportResponse:
+    provider = request.app.state.recipe_import_provider
+    if provider is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Carter is not configured yet.",
+        )
+
+    try:
+        recipe_text = await resolve_recipe_source(payload)
+        return await provider.import_recipe(recipe_text)
+    except RecipeImportSourceError as error:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)) from error
+    except RecipeImportProviderError as error:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(error)) from error
+
+
+@router.post(
+    "/assistant/chat",
+    response_model=AssistantChatResponse,
+    tags=["assistant"],
+)
+async def post_assistant_chat(
+    request: Request,
+    payload: AssistantChatRequest,
+) -> AssistantChatResponse:
+    provider = request.app.state.recipe_import_provider
+    if provider is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Carter is not configured yet.",
+        )
+
+    try:
+        return AssistantChatResponse(message=await provider.answer_question(payload.message))
+    except RecipeImportProviderError as error:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(error)) from error
 
 
 @router.get("/health", response_model=HealthResponse, tags=["system"])
