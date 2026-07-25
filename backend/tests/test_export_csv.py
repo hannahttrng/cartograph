@@ -9,7 +9,16 @@ from backend.tools.export_csv import build_parser, export_catalog_to_csv, main
 
 EXPECTED_HEADERS = {
     "stores": ["id", "name", "address"],
-    "products": ["id", "name", "store_id", "unit", "current_price_date"],
+    "products": [
+        "id",
+        "name",
+        "store_id",
+        "unit",
+        "current_price_date",
+        "current_price",
+        "current_price_quantity",
+        "current_price_sale",
+    ],
     "product_tags": ["product_id", "tag", "position"],
     "price_history": ["product_id", "date", "price", "quantity", "sale"],
 }
@@ -41,6 +50,14 @@ def _create_catalog_database(database_path: Path) -> None:
                 (20, "Bread", 2, "loaf"),
                 (10, "Apples", 1, "lbs"),
             ],
+        )
+        connection.execute(
+            """
+            UPDATE products
+            SET current_price_date = 300, current_price = 2.99,
+                current_price_quantity = 1, current_price_sale = 0
+            WHERE id = 10
+            """
         )
         connection.executemany(
             """
@@ -97,6 +114,10 @@ def test_export_writes_four_catalog_csvs_with_stable_rows(tmp_path: Path) -> Non
     assert [row["id"] for row in stores] == ["1", "2"]
     assert stores[0]["name"] == 'Caf\u00e9, "Centro"'
     assert [row["id"] for row in products] == ["10", "20"]
+    assert products[0]["current_price_date"] == "300.0"
+    assert products[0]["current_price"] == "2.99"
+    assert products[0]["current_price_quantity"] == "1.0"
+    assert products[0]["current_price_sale"] == "0"
     assert [(row["product_id"], row["tag"]) for row in tags] == [
         ("10", "fresh"),
         ("10", "stone fruit"),

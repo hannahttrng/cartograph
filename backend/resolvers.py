@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Protocol
 
 from backend.types import (
+    Price,
     Product,
     RouteTagSelection,
     ShoppingList,
@@ -35,8 +36,22 @@ SCHEMA_STATEMENTS = (
         name TEXT NOT NULL CHECK (length(trim(name)) > 0),
         store_id INTEGER NOT NULL,
         unit TEXT NOT NULL CHECK (length(trim(unit)) > 0),
-        current_price_date REAL CHECK (
-            current_price_date IS NULL OR current_price_date >= 0
+        current_price_date REAL,
+        current_price REAL,
+        current_price_quantity REAL,
+        current_price_sale INTEGER,
+        CHECK (
+            (
+                current_price_date IS NULL
+                AND current_price IS NULL
+                AND current_price_quantity IS NULL
+                AND current_price_sale IS NULL
+            ) OR (
+                current_price_date >= 0
+                AND current_price >= 0
+                AND current_price_quantity > 0
+                AND current_price_sale IN (0, 1)
+            )
         ),
         FOREIGN KEY (store_id) REFERENCES stores(id) ON DELETE RESTRICT
     )
@@ -159,47 +174,78 @@ TRIGGER_STATEMENTS = (
     """
     CREATE TRIGGER IF NOT EXISTS validate_product_current_price_insert
     BEFORE INSERT ON products
-    WHEN NEW.current_price_date IS NOT NULL
     BEGIN
-        SELECT RAISE(ABORT, 'current price must reference product price history')
-        WHERE NOT EXISTS (
+        SELECT RAISE(ABORT, 'current price fields must be all null or all populated')
+        WHERE (
+            (NEW.current_price_date IS NOT NULL)
+            + (NEW.current_price IS NOT NULL)
+            + (NEW.current_price_quantity IS NOT NULL)
+            + (NEW.current_price_sale IS NOT NULL)
+        ) NOT IN (0, 4);
+        SELECT RAISE(ABORT, 'current price fields are invalid')
+        WHERE NEW.current_price_date IS NOT NULL AND (
+            NEW.current_price_date < 0
+            OR NEW.current_price < 0
+            OR NEW.current_price_quantity <= 0
+            OR NEW.current_price_sale NOT IN (0, 1)
+        );
+        SELECT RAISE(ABORT, 'current price must be newer than product price history')
+        WHERE NEW.current_price_date IS NOT NULL AND EXISTS (
             SELECT 1 FROM price_history
-            WHERE product_id = NEW.id AND date = NEW.current_price_date
+            WHERE product_id = NEW.id AND date >= NEW.current_price_date
         );
     END
     """,
     """
     CREATE TRIGGER IF NOT EXISTS validate_product_current_price_update
-    BEFORE UPDATE OF id, current_price_date ON products
-    WHEN NEW.current_price_date IS NOT NULL
+    BEFORE UPDATE OF id, current_price_date, current_price,
+        current_price_quantity, current_price_sale ON products
     BEGIN
-        SELECT RAISE(ABORT, 'current price must reference product price history')
-        WHERE NOT EXISTS (
+        SELECT RAISE(ABORT, 'current price fields must be all null or all populated')
+        WHERE (
+            (NEW.current_price_date IS NOT NULL)
+            + (NEW.current_price IS NOT NULL)
+            + (NEW.current_price_quantity IS NOT NULL)
+            + (NEW.current_price_sale IS NOT NULL)
+        ) NOT IN (0, 4);
+        SELECT RAISE(ABORT, 'current price fields are invalid')
+        WHERE NEW.current_price_date IS NOT NULL AND (
+            NEW.current_price_date < 0
+            OR NEW.current_price < 0
+            OR NEW.current_price_quantity <= 0
+            OR NEW.current_price_sale NOT IN (0, 1)
+        );
+        SELECT RAISE(ABORT, 'current price must be newer than product price history')
+        WHERE NEW.current_price_date IS NOT NULL AND EXISTS (
             SELECT 1 FROM price_history
-            WHERE product_id = NEW.id AND date = NEW.current_price_date
+            WHERE product_id = NEW.id AND date >= NEW.current_price_date
         );
     END
     """,
     """
-    CREATE TRIGGER IF NOT EXISTS protect_current_price_delete
-    BEFORE DELETE ON price_history
-    WHEN EXISTS (
-        SELECT 1 FROM products
-        WHERE id = OLD.product_id AND current_price_date = OLD.date
-    )
+    CREATE TRIGGER IF NOT EXISTS validate_price_history_insert
+    BEFORE INSERT ON price_history
     BEGIN
-        SELECT RAISE(ABORT, 'current price history entry is still referenced');
+        SELECT RAISE(ABORT, 'price history must be older than current price')
+        WHERE EXISTS (
+            SELECT 1 FROM products
+            WHERE id = NEW.product_id
+                AND current_price_date IS NOT NULL
+                AND NEW.date >= current_price_date
+        );
     END
     """,
     """
-    CREATE TRIGGER IF NOT EXISTS protect_current_price_update
+    CREATE TRIGGER IF NOT EXISTS validate_price_history_update
     BEFORE UPDATE OF product_id, date ON price_history
-    WHEN EXISTS (
-        SELECT 1 FROM products
-        WHERE id = OLD.product_id AND current_price_date = OLD.date
-    )
     BEGIN
-        SELECT RAISE(ABORT, 'current price history entry is still referenced');
+        SELECT RAISE(ABORT, 'price history must be older than current price')
+        WHERE EXISTS (
+            SELECT 1 FROM products
+            WHERE id = NEW.product_id
+                AND current_price_date IS NOT NULL
+                AND NEW.date >= current_price_date
+        );
     END
     """,
     """
@@ -210,7 +256,11 @@ TRIGGER_STATEMENTS = (
         SELECT RAISE(ABORT, 'route product must have a current price')
         WHERE NOT EXISTS (
             SELECT 1 FROM products
-            WHERE id = NEW.product_id AND current_price_date IS NOT NULL
+            WHERE id = NEW.product_id
+                AND current_price_date IS NOT NULL
+                AND current_price IS NOT NULL
+                AND current_price_quantity IS NOT NULL
+                AND current_price_sale IS NOT NULL
         );
     END
     """,
@@ -222,7 +272,11 @@ TRIGGER_STATEMENTS = (
         SELECT RAISE(ABORT, 'route product must have a current price')
         WHERE NOT EXISTS (
             SELECT 1 FROM products
-            WHERE id = NEW.product_id AND current_price_date IS NOT NULL
+            WHERE id = NEW.product_id
+                AND current_price_date IS NOT NULL
+                AND current_price IS NOT NULL
+                AND current_price_quantity IS NOT NULL
+                AND current_price_sale IS NOT NULL
         );
     END
     """,
@@ -387,7 +441,21 @@ def _ensure_price_history_sale(connection: sqlite3.Connection) -> None:
         )
 
 
-def _ensure_current_price_column(connection: sqlite3.Connection) -> None:
+def _drop_pricing_triggers(connection: sqlite3.Connection) -> None:
+    for trigger_name in (
+        "validate_product_current_price_insert",
+        "validate_product_current_price_update",
+        "protect_current_price_delete",
+        "protect_current_price_update",
+        "validate_price_history_insert",
+        "validate_price_history_update",
+        "validate_route_product_insert",
+        "validate_route_product_update",
+    ):
+        connection.execute(f"DROP TRIGGER IF EXISTS {trigger_name}")
+
+
+def _ensure_current_price_columns(connection: sqlite3.Connection) -> None:
     columns = {
         row["name"] for row in connection.execute("PRAGMA table_info(products)")
     }
@@ -397,6 +465,129 @@ def _ensure_current_price_column(connection: sqlite3.Connection) -> None:
             ALTER TABLE products ADD COLUMN current_price_date REAL
             CHECK (current_price_date IS NULL OR current_price_date >= 0)
             """
+        )
+    if "current_price" not in columns:
+        connection.execute(
+            """
+            ALTER TABLE products ADD COLUMN current_price REAL
+            CHECK (current_price IS NULL OR current_price >= 0)
+            """
+        )
+    if "current_price_quantity" not in columns:
+        connection.execute(
+            """
+            ALTER TABLE products ADD COLUMN current_price_quantity REAL
+            CHECK (current_price_quantity IS NULL OR current_price_quantity > 0)
+            """
+        )
+    if "current_price_sale" not in columns:
+        connection.execute(
+            """
+            ALTER TABLE products ADD COLUMN current_price_sale INTEGER
+            CHECK (current_price_sale IS NULL OR current_price_sale IN (0, 1))
+            """
+        )
+
+
+def _migrate_current_price_references(connection: sqlite3.Connection) -> None:
+    legacy_products = connection.execute(
+        """
+        SELECT id, current_price_date
+        FROM products
+        WHERE current_price_date IS NOT NULL
+            AND current_price IS NULL
+            AND current_price_quantity IS NULL
+            AND current_price_sale IS NULL
+        """
+    ).fetchall()
+    for product in legacy_products:
+        referenced = connection.execute(
+            """
+            SELECT 1 FROM price_history
+            WHERE product_id = ? AND date = ?
+            """,
+            (product["id"], product["current_price_date"]),
+        ).fetchone()
+        if referenced is None:
+            raise sqlite3.IntegrityError(
+                "current price must reference product price history"
+            )
+
+        latest = connection.execute(
+            """
+            SELECT date, price, quantity, sale
+            FROM price_history
+            WHERE product_id = ?
+            ORDER BY date DESC
+            LIMIT 1
+            """,
+            (product["id"],),
+        ).fetchone()
+        if latest is None:
+            raise sqlite3.IntegrityError(
+                "current price must reference product price history"
+            )
+        connection.execute(
+            """
+            UPDATE products
+            SET current_price_date = ?, current_price = ?,
+                current_price_quantity = ?, current_price_sale = ?
+            WHERE id = ?
+            """,
+            (
+                latest["date"],
+                latest["price"],
+                latest["quantity"],
+                latest["sale"],
+                product["id"],
+            ),
+        )
+        connection.execute(
+            "DELETE FROM price_history WHERE product_id = ? AND date = ?",
+            (product["id"], latest["date"]),
+        )
+
+    invalid_tuple = connection.execute(
+        """
+        SELECT id FROM products
+        WHERE (
+            (current_price_date IS NOT NULL)
+            + (current_price IS NOT NULL)
+            + (current_price_quantity IS NOT NULL)
+            + (current_price_sale IS NOT NULL)
+        ) NOT IN (0, 4)
+        OR (
+            current_price_date IS NOT NULL AND (
+                current_price_date < 0
+                OR current_price < 0
+                OR current_price_quantity <= 0
+                OR current_price_sale NOT IN (0, 1)
+            )
+        )
+        LIMIT 1
+        """
+    ).fetchone()
+    if invalid_tuple is not None:
+        raise sqlite3.IntegrityError(
+            "current price fields must be all null or all populated"
+        )
+
+    invalid_order = connection.execute(
+        """
+        SELECT product.id
+        FROM products AS product
+        WHERE product.current_price_date IS NOT NULL
+            AND EXISTS (
+                SELECT 1 FROM price_history AS history
+                WHERE history.product_id = product.id
+                    AND history.date >= product.current_price_date
+            )
+        LIMIT 1
+        """
+    ).fetchone()
+    if invalid_order is not None:
+        raise sqlite3.IntegrityError(
+            "current price must be newer than product price history"
         )
 
 
@@ -422,10 +613,12 @@ def initialize_database(database_path: str | Path) -> None:
         with transaction(connection):
             for statement in SCHEMA_STATEMENTS:
                 connection.execute(statement)
+            _drop_pricing_triggers(connection)
             _ensure_price_history_quantity_real(connection)
             _ensure_price_history_sale(connection)
             _migrate_legacy_product_prices(connection)
-            _ensure_current_price_column(connection)
+            _ensure_current_price_columns(connection)
+            _migrate_current_price_references(connection)
             _ensure_shopping_list_active_column(connection)
             for statement in TRIGGER_STATEMENTS:
                 connection.execute(statement)
@@ -435,6 +628,162 @@ def initialize_database(database_path: str | Path) -> None:
 
 def is_product_route_eligible(product: Product) -> bool:
     return product.current_price is not None
+
+
+class ProductPriceConflictError(ValueError):
+    pass
+
+
+def _price_payload_matches(row: sqlite3.Row, price: Price) -> bool:
+    return (
+        row["price"] == price.price
+        and row["quantity"] == price.quantity
+        and bool(row["sale"]) == price.sale
+    )
+
+
+def _insert_price_history(
+    connection: sqlite3.Connection, product_id: int, price: Price
+) -> bool:
+    existing = connection.execute(
+        """
+        SELECT price, quantity, sale FROM price_history
+        WHERE product_id = ? AND date = ?
+        """,
+        (product_id, price.date),
+    ).fetchone()
+    if existing is not None:
+        if _price_payload_matches(existing, price):
+            return False
+        raise ProductPriceConflictError(
+            f"product {product_id} already has a different price at {price.date}"
+        )
+    connection.execute(
+        """
+        INSERT INTO price_history (product_id, date, price, quantity, sale)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (product_id, price.date, price.price, price.quantity, price.sale),
+    )
+    return True
+
+
+def record_product_price(
+    connection: sqlite3.Connection, product_id: int, observed_price: Price
+) -> bool:
+    with transaction(connection, immediate=True):
+        product = connection.execute(
+            """
+            SELECT current_price_date, current_price,
+                   current_price_quantity, current_price_sale
+            FROM products WHERE id = ?
+            """,
+            (product_id,),
+        ).fetchone()
+        if product is None:
+            raise LookupError(f"product {product_id} does not exist")
+
+        current_date = product["current_price_date"]
+        if current_date is not None:
+            current_price = Price(
+                date=current_date,
+                price=product["current_price"],
+                quantity=product["current_price_quantity"],
+                sale=bool(product["current_price_sale"]),
+            )
+            if observed_price.date == current_price.date:
+                if observed_price == current_price:
+                    return False
+                raise ProductPriceConflictError(
+                    f"product {product_id} already has a different price "
+                    f"at {observed_price.date}"
+                )
+            if observed_price.date < current_price.date:
+                return _insert_price_history(connection, product_id, observed_price)
+
+            connection.execute(
+                """
+                UPDATE products
+                SET current_price_date = ?, current_price = ?,
+                    current_price_quantity = ?, current_price_sale = ?
+                WHERE id = ?
+                """,
+                (
+                    observed_price.date,
+                    observed_price.price,
+                    observed_price.quantity,
+                    observed_price.sale,
+                    product_id,
+                ),
+            )
+            _insert_price_history(connection, product_id, current_price)
+            return True
+
+        latest_history = connection.execute(
+            """
+            SELECT date, price, quantity, sale
+            FROM price_history
+            WHERE product_id = ?
+            ORDER BY date DESC
+            LIMIT 1
+            """,
+            (product_id,),
+        ).fetchone()
+        if latest_history is not None and observed_price.date <= latest_history["date"]:
+            return _insert_price_history(connection, product_id, observed_price)
+
+        connection.execute(
+            """
+            UPDATE products
+            SET current_price_date = ?, current_price = ?,
+                current_price_quantity = ?, current_price_sale = ?
+            WHERE id = ?
+            """,
+            (
+                observed_price.date,
+                observed_price.price,
+                observed_price.quantity,
+                observed_price.sale,
+                product_id,
+            ),
+        )
+        return True
+
+
+def clear_product_current_price(
+    connection: sqlite3.Connection, product_id: int
+) -> bool:
+    with transaction(connection, immediate=True):
+        product = connection.execute(
+            """
+            SELECT current_price_date, current_price,
+                   current_price_quantity, current_price_sale
+            FROM products WHERE id = ?
+            """,
+            (product_id,),
+        ).fetchone()
+        if product is None:
+            raise LookupError(f"product {product_id} does not exist")
+        if product["current_price_date"] is None:
+            return False
+
+        current_price = Price(
+            date=product["current_price_date"],
+            price=product["current_price"],
+            quantity=product["current_price_quantity"],
+            sale=bool(product["current_price_sale"]),
+        )
+        connection.execute(
+            """
+            UPDATE products
+            SET current_price_date = NULL, current_price = NULL,
+                current_price_quantity = NULL, current_price_sale = NULL
+            WHERE id = ?
+            """,
+            (product_id,),
+        )
+        _insert_price_history(connection, product_id, current_price)
+        return True
 
 
 def _next_shopping_list_name(connection: sqlite3.Connection) -> str:
@@ -749,17 +1098,18 @@ def load_optimization_catalog(
             product.id AS product_id,
             product.name AS product_name,
             product.unit AS product_unit,
-            current_price.price AS product_price,
+            product.current_price AS product_price,
             product_tag.tag AS matching_tag
         FROM product_tags AS product_tag
         JOIN products AS product
             ON product.id = product_tag.product_id
         JOIN stores AS store
             ON store.id = product.store_id
-        JOIN price_history AS current_price
-            ON current_price.product_id = product.id
-            AND current_price.date = product.current_price_date
         WHERE product_tag.tag IN ({placeholders})
+            AND product.current_price_date IS NOT NULL
+            AND product.current_price IS NOT NULL
+            AND product.current_price_quantity IS NOT NULL
+            AND product.current_price_sale IS NOT NULL
         ORDER BY store.id, product.id, product_tag.tag
         """,
         tags,

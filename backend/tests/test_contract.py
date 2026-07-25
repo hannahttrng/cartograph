@@ -13,7 +13,9 @@ from backend.arcgis_connector import (
 )
 from backend.index import create_app
 from backend.resolvers import (
+    ProductPriceConflictError,
     claim_pending_shopping_list,
+    clear_product_current_price,
     connect_database,
     create_shopping_list,
     delete_shopping_list,
@@ -23,13 +25,14 @@ from backend.resolvers import (
     is_product_route_eligible,
     list_shopping_lists,
     publish_shopping_list_routes,
+    record_product_price,
     replace_shopping_list,
     requeue_shopping_list,
     update_shopping_list_name,
 )
 from backend.types import (
     AssistantRecipeImportResponse,
-    PriceHistory,
+    Price,
     Product,
     ProductCreate,
     Route,
@@ -45,6 +48,7 @@ from backend.types import (
     ShoppingListReplace,
     ShoppingListStatus,
     StoreCreate,
+    Tag,
 )
 
 
@@ -104,11 +108,60 @@ class _FakeRecipeImportProvider:
         return "Cartograph can help plan a grocery trip."
 
 
-def test_price_history_computes_unit_price() -> None:
-    history = PriceHistory(date=100, price=12, quantity=2.5)
+def test_tag_normalizes_defaults_and_serializes_aliases() -> None:
+    tag = Tag(
+        tag=" Ground Beef ",
+        defaultUnit=" POUND ",
+        defaultQuantity=1.5,
+    )
 
-    assert history.unit_price == 4.8
-    assert history.model_dump(by_alias=True) == {
+    assert tag.tag == "ground beef"
+    assert tag.default_unit == "pound"
+    assert tag.default_quantity == 1.5
+    assert tag.model_dump(by_alias=True) == {
+        "tag": "ground beef",
+        "defaultUnit": "pound",
+        "defaultQuantity": 1.5,
+    }
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value", "message"),
+    [
+        ("tag", "   ", "tag must not be blank"),
+        ("defaultUnit", "   ", "defaultUnit must not be blank"),
+    ],
+)
+def test_tag_rejects_blank_text(
+    field_name: str, value: str, message: str
+) -> None:
+    payload = {
+        "tag": "milk",
+        "defaultUnit": "gallon",
+        "defaultQuantity": 1,
+    }
+    payload[field_name] = value
+
+    with pytest.raises(ValidationError, match=message):
+        Tag.model_validate(payload)
+
+
+@pytest.mark.parametrize(
+    "quantity",
+    [0, -1, float("nan"), float("inf"), float("-inf")],
+)
+def test_tag_rejects_nonpositive_or_nonfinite_default_quantity(
+    quantity: float,
+) -> None:
+    with pytest.raises(ValidationError):
+        Tag(tag="milk", defaultUnit="gallon", defaultQuantity=quantity)
+
+
+def test_price_computes_unit_price() -> None:
+    price = Price(date=100, price=12, quantity=2.5)
+
+    assert price.unit_price == 4.8
+    assert price.model_dump(by_alias=True) == {
         "date": 100.0,
         "price": 12.0,
         "quantity": 2.5,
@@ -117,9 +170,9 @@ def test_price_history_computes_unit_price() -> None:
     }
 
 
-def test_price_history_rejects_zero_quantity() -> None:
+def test_price_rejects_zero_quantity() -> None:
     with pytest.raises(ValidationError):
-        PriceHistory(date=100, price=12, quantity=0)
+        Price(date=100, price=12, quantity=0)
 
 
 def test_product_name_is_trimmed_while_other_text_is_normalized() -> None:
@@ -232,7 +285,7 @@ def test_shopping_list_contract_keeps_routes_server_managed_and_ordered() -> Non
         )
 
 
-def test_product_current_price_points_to_owned_history_entry() -> None:
+def test_product_current_price_is_independent_from_history() -> None:
     product = Product(
         id=1,
         name="Milk",
@@ -243,23 +296,23 @@ def test_product_current_price_points_to_owned_history_entry() -> None:
             {"date": 200, "price": 4.25, "quantity": 1},
             {"date": 100, "price": 3.75, "quantity": 1, "sale": True},
         ],
-        currentPrice={"date": 100, "price": 3.75, "quantity": 1, "sale": True},
+        currentPrice={"date": 300, "price": 4.5, "quantity": 1, "sale": False},
     )
 
     assert [entry.date for entry in product.price_history] == [100, 200]
-    assert product.current_price is product.price_history[0]
     assert product.model_dump(by_alias=True)["currentPrice"] == {
-        "date": 100.0,
-        "price": 3.75,
+        "date": 300.0,
+        "price": 4.5,
         "quantity": 1,
-        "sale": True,
-        "unitPrice": 3.75,
+        "sale": False,
+        "unitPrice": 4.5,
     }
 
 
-def test_product_current_price_sale_must_match_owned_history_entry() -> None:
+@pytest.mark.parametrize("current_date", [100, 50])
+def test_product_rejects_history_at_or_after_current_price(current_date: float) -> None:
     with pytest.raises(
-        ValidationError, match="currentPrice must reference an entry in priceHistory"
+        ValidationError, match="currentPrice must be newer than every priceHistory entry"
     ):
         Product(
             id=1,
@@ -267,8 +320,8 @@ def test_product_current_price_sale_must_match_owned_history_entry() -> None:
             tags=["dairy"],
             store=10,
             unit="gallon",
-            priceHistory=[{"date": 100, "price": 3.75, "quantity": 1, "sale": True}],
-            currentPrice={"date": 100, "price": 3.75, "quantity": 1, "sale": False},
+            priceHistory=[{"date": 100, "price": 3.75, "quantity": 1}],
+            currentPrice={"date": current_date, "price": 4.25, "quantity": 1},
         )
 
 
@@ -298,21 +351,6 @@ def test_product_history_does_not_imply_a_current_price() -> None:
     assert product.current_price is None
 
 
-def test_product_rejects_current_price_outside_history() -> None:
-    with pytest.raises(
-        ValidationError, match="currentPrice must reference an entry in priceHistory"
-    ):
-        Product(
-            id=1,
-            name="Milk",
-            tags=["dairy"],
-            store=10,
-            unit="gallon",
-            priceHistory=[{"date": 100, "price": 3.75, "quantity": 1}],
-            currentPrice={"date": 200, "price": 4.25, "quantity": 1},
-        )
-
-
 def test_only_products_with_current_prices_are_route_eligible() -> None:
     product = Product(
         id=1,
@@ -325,7 +363,7 @@ def test_only_products_with_current_prices_are_route_eligible() -> None:
 
     assert not is_product_route_eligible(product)
 
-    product.current_price = product.price_history[0]
+    product.current_price = Price(date=200, price=4.25, quantity=1)
 
     assert is_product_route_eligible(product)
 
@@ -802,7 +840,12 @@ def test_route_schema_enforces_order_and_distinct_product_assignments(
             [(10,), (20,)],
         )
         connection.executemany(
-            "UPDATE products SET current_price_date = 100 WHERE id = ?",
+            """
+            UPDATE products
+            SET current_price_date = 200, current_price = 1.0,
+                current_price_quantity = 1, current_price_sale = 0
+            WHERE id = ?
+            """,
             [(10,), (20,)],
         )
         connection.execute(
@@ -851,7 +894,9 @@ def test_route_schema_enforces_order_and_distinct_product_assignments(
         connection.close()
 
 
-def test_price_history_schema_owns_ordered_product_prices(tmp_path: object) -> None:
+def test_product_schema_owns_current_price_separately_from_history(
+    tmp_path: object,
+) -> None:
     database_path = tmp_path / "prices.db"  # type: ignore[operator]
     initialize_database(database_path)
     connection = connect_database(database_path)
@@ -873,7 +918,12 @@ def test_price_history_schema_owns_ordered_product_prices(tmp_path: object) -> N
             [(100, 7.50, 2.0), (200, 10.625, 2.5)],
         )
         connection.execute(
-            "UPDATE products SET current_price_date = 100 WHERE id = 10"
+            """
+            UPDATE products
+            SET current_price_date = 300, current_price = 12.0,
+                current_price_quantity = 3.0, current_price_sale = 1
+            WHERE id = 10
+            """
         )
 
         latest = connection.execute(
@@ -890,13 +940,11 @@ def test_price_history_schema_owns_ordered_product_prices(tmp_path: object) -> N
         }
         current = connection.execute(
             """
-            SELECT history.date, history.price, history.quantity, history.sale,
-                   history.price / history.quantity AS unit_price
-            FROM products AS product
-            JOIN price_history AS history
-                ON history.product_id = product.id
-                AND history.date = product.current_price_date
-            WHERE product.id = 10
+            SELECT current_price_date AS date, current_price AS price,
+                   current_price_quantity AS quantity,
+                   current_price_sale AS sale,
+                   current_price / current_price_quantity AS unit_price
+            FROM products WHERE id = 10
             """
         ).fetchone()
 
@@ -916,18 +964,24 @@ def test_price_history_schema_owns_ordered_product_prices(tmp_path: object) -> N
             )
         with pytest.raises(
             sqlite3.IntegrityError,
-            match="current price must reference product price history",
+            match="current price fields must be all null or all populated",
         ):
             connection.execute(
-                "UPDATE products SET current_price_date = 300 WHERE id = 10"
+                "UPDATE products SET current_price = NULL WHERE id = 10"
             )
         with pytest.raises(
             sqlite3.IntegrityError,
-            match="current price history entry is still referenced",
+            match="price history must be older than current price",
         ):
             connection.execute(
-                "DELETE FROM price_history WHERE product_id = 10 AND date = 100"
+                """
+                INSERT INTO price_history (product_id, date, price, quantity)
+                VALUES (10, 300, 12.0, 3.0)
+                """
             )
+        connection.execute(
+            "DELETE FROM price_history WHERE product_id = 10 AND date = 100"
+        )
     finally:
         connection.close()
 
@@ -939,14 +993,255 @@ def test_price_history_schema_owns_ordered_product_prices(tmp_path: object) -> N
         "unit_price": 4.25,
     }
     assert dict(current) == {
-        "date": 100.0,
-        "price": 7.5,
-        "quantity": 2.0,
-        "sale": 0,
-        "unit_price": 3.75,
+        "date": 300.0,
+        "price": 12.0,
+        "quantity": 3.0,
+        "sale": 1,
+        "unit_price": 4.0,
     }
     assert "price" not in product_columns
-    assert "current_price_date" in product_columns
+    assert {
+        "current_price_date",
+        "current_price",
+        "current_price_quantity",
+        "current_price_sale",
+    } <= product_columns
+
+
+def test_product_price_lifecycle_orders_observations_and_archives_current(
+    tmp_path: object,
+) -> None:
+    database_path = tmp_path / "price-lifecycle.db"  # type: ignore[operator]
+    initialize_database(database_path)
+    connection = connect_database(database_path)
+    try:
+        connection.execute(
+            "INSERT INTO stores (id, name, address) VALUES (1, 'Market', '1 Main St')"
+        )
+        connection.execute(
+            """
+            INSERT INTO products (id, name, store_id, unit)
+            VALUES (10, 'Milk', 1, 'gallon')
+            """
+        )
+
+        assert record_product_price(
+            connection, 10, Price(date=200, price=4.25, quantity=1)
+        )
+        assert record_product_price(
+            connection, 10, Price(date=100, price=3.75, quantity=1, sale=True)
+        )
+        assert record_product_price(
+            connection, 10, Price(date=300, price=4.5, quantity=1)
+        )
+        assert not record_product_price(
+            connection, 10, Price(date=300, price=4.5, quantity=1)
+        )
+
+        with pytest.raises(ProductPriceConflictError):
+            record_product_price(
+                connection, 10, Price(date=300, price=9.0, quantity=1)
+            )
+
+        current = connection.execute(
+            """
+            SELECT current_price_date, current_price,
+                   current_price_quantity, current_price_sale
+            FROM products WHERE id = 10
+            """
+        ).fetchone()
+        history = connection.execute(
+            """
+            SELECT date, price, quantity, sale
+            FROM price_history WHERE product_id = 10 ORDER BY date
+            """
+        ).fetchall()
+
+        assert dict(current) == {
+            "current_price_date": 300.0,
+            "current_price": 4.5,
+            "current_price_quantity": 1.0,
+            "current_price_sale": 0,
+        }
+        assert [dict(row) for row in history] == [
+            {"date": 100.0, "price": 3.75, "quantity": 1.0, "sale": 1},
+            {"date": 200.0, "price": 4.25, "quantity": 1.0, "sale": 0},
+        ]
+
+        assert clear_product_current_price(connection, 10)
+        assert not clear_product_current_price(connection, 10)
+        assert connection.execute(
+            "SELECT current_price_date FROM products WHERE id = 10"
+        ).fetchone()[0] is None
+        assert connection.execute(
+            "SELECT MAX(date) FROM price_history WHERE product_id = 10"
+        ).fetchone()[0] == 300.0
+    finally:
+        connection.close()
+
+
+def test_product_price_lifecycle_rejects_unknown_products_and_history_conflicts(
+    tmp_path: object,
+) -> None:
+    database_path = tmp_path / "price-conflicts.db"  # type: ignore[operator]
+    initialize_database(database_path)
+    connection = connect_database(database_path)
+    try:
+        connection.execute(
+            "INSERT INTO stores (id, name, address) VALUES (1, 'Market', '1 Main St')"
+        )
+        connection.execute(
+            """
+            INSERT INTO products (id, name, store_id, unit)
+            VALUES (10, 'Milk', 1, 'gallon')
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO price_history (product_id, date, price, quantity, sale)
+            VALUES (10, 100, 3.75, 1, 0)
+            """
+        )
+
+        assert not record_product_price(
+            connection, 10, Price(date=100, price=3.75, quantity=1)
+        )
+        with pytest.raises(ProductPriceConflictError):
+            record_product_price(
+                connection, 10, Price(date=100, price=4.0, quantity=1)
+            )
+        with pytest.raises(LookupError, match="product 999 does not exist"):
+            record_product_price(
+                connection, 999, Price(date=100, price=4.0, quantity=1)
+            )
+        with pytest.raises(LookupError, match="product 999 does not exist"):
+            clear_product_current_price(connection, 999)
+    finally:
+        connection.close()
+
+
+def test_initialization_promotes_latest_legacy_price_and_is_idempotent(
+    tmp_path: object,
+) -> None:
+    database_path = tmp_path / "legacy-current-price.db"  # type: ignore[operator]
+    connection = sqlite3.connect(database_path)
+    try:
+        connection.execute(
+            "CREATE TABLE stores (id INTEGER PRIMARY KEY, name TEXT, address TEXT)"
+        )
+        connection.execute(
+            """
+            CREATE TABLE products (
+                id INTEGER PRIMARY KEY,
+                name TEXT NOT NULL,
+                store_id INTEGER NOT NULL,
+                unit TEXT NOT NULL,
+                current_price_date REAL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE price_history (
+                product_id INTEGER NOT NULL,
+                date REAL NOT NULL,
+                price REAL NOT NULL,
+                quantity REAL NOT NULL DEFAULT 1,
+                sale INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (product_id, date)
+            )
+            """
+        )
+        connection.execute("INSERT INTO stores VALUES (1, 'Market', '1 Main St')")
+        connection.execute("INSERT INTO products VALUES (10, 'Milk', 1, 'gallon', 100)")
+        connection.executemany(
+            "INSERT INTO price_history VALUES (10, ?, ?, ?, ?)",
+            [(100, 3.75, 1, 0), (200, 4.25, 1, 1)],
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    initialize_database(database_path)
+    initialize_database(database_path)
+
+    connection = connect_database(database_path)
+    try:
+        current = connection.execute(
+            """
+            SELECT current_price_date, current_price,
+                   current_price_quantity, current_price_sale
+            FROM products WHERE id = 10
+            """
+        ).fetchone()
+        history = connection.execute(
+            """
+            SELECT date, price, quantity, sale
+            FROM price_history WHERE product_id = 10 ORDER BY date
+            """
+        ).fetchall()
+        foreign_key_violations = connection.execute(
+            "PRAGMA foreign_key_check"
+        ).fetchall()
+    finally:
+        connection.close()
+
+    assert dict(current) == {
+        "current_price_date": 200.0,
+        "current_price": 4.25,
+        "current_price_quantity": 1.0,
+        "current_price_sale": 1,
+    }
+    assert [dict(row) for row in history] == [
+        {"date": 100.0, "price": 3.75, "quantity": 1.0, "sale": 0}
+    ]
+    assert foreign_key_violations == []
+
+
+def test_initialization_rejects_dangling_legacy_current_price(
+    tmp_path: object,
+) -> None:
+    database_path = tmp_path / "dangling-current-price.db"  # type: ignore[operator]
+    connection = sqlite3.connect(database_path)
+    try:
+        connection.execute(
+            "CREATE TABLE stores (id INTEGER PRIMARY KEY, name TEXT, address TEXT)"
+        )
+        connection.execute(
+            """
+            CREATE TABLE products (
+                id INTEGER PRIMARY KEY,
+                name TEXT NOT NULL,
+                store_id INTEGER NOT NULL,
+                unit TEXT NOT NULL,
+                current_price_date REAL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE price_history (
+                product_id INTEGER NOT NULL,
+                date REAL NOT NULL,
+                price REAL NOT NULL,
+                quantity REAL NOT NULL DEFAULT 1,
+                sale INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (product_id, date)
+            )
+            """
+        )
+        connection.execute("INSERT INTO stores VALUES (1, 'Market', '1 Main St')")
+        connection.execute("INSERT INTO products VALUES (10, 'Milk', 1, 'gallon', 999)")
+        connection.execute("INSERT INTO price_history VALUES (10, 100, 3.75, 1, 0)")
+        connection.commit()
+    finally:
+        connection.close()
+
+    with pytest.raises(
+        sqlite3.IntegrityError,
+        match="current price must reference product price history",
+    ):
+        initialize_database(database_path)
 
 
 def test_initialization_migrates_legacy_scalar_prices(tmp_path: object) -> None:
@@ -1102,37 +1397,34 @@ def test_initialization_migrates_integer_quantity_to_real(tmp_path: object) -> N
             row["name"]: row["type"]
             for row in connection.execute("PRAGMA table_info(price_history)")
         }["quantity"]
-        migrated = connection.execute(
+        migrated_history = connection.execute(
             "SELECT date, price, quantity, sale FROM price_history WHERE product_id = 10"
         ).fetchone()
-        current_price_date = connection.execute(
-            "SELECT current_price_date FROM products WHERE id = 10"
-        ).fetchone()[0]
+        current = connection.execute(
+            """
+            SELECT current_price_date, current_price,
+                   current_price_quantity, current_price_sale
+            FROM products WHERE id = 10
+            """
+        ).fetchone()
         with pytest.raises(
             sqlite3.IntegrityError,
-            match="current price history entry is still referenced",
+            match="current price fields must be all null or all populated",
         ):
             connection.execute(
-                "DELETE FROM price_history WHERE product_id = 10 AND date = 100"
-            )
-        with pytest.raises(
-            sqlite3.IntegrityError,
-            match="current price must reference product price history",
-        ):
-            connection.execute(
-                "UPDATE products SET current_price_date = 200 WHERE id = 10"
+                "UPDATE products SET current_price = NULL WHERE id = 10"
             )
     finally:
         connection.close()
 
     assert quantity_type == "REAL"
-    assert dict(migrated) == {
-        "date": 100.0,
-        "price": 5.0,
-        "quantity": 2.0,
-        "sale": 1,
+    assert migrated_history is None
+    assert dict(current) == {
+        "current_price_date": 100.0,
+        "current_price": 5.0,
+        "current_price_quantity": 2.0,
+        "current_price_sale": 1,
     }
-    assert current_price_date == 100.0
 
 
 def test_integer_quantity_migration_defaults_missing_sale_to_false(
@@ -1182,24 +1474,28 @@ def test_integer_quantity_migration_defaults_missing_sale_to_false(
             row["name"]: row["type"]
             for row in connection.execute("PRAGMA table_info(price_history)")
         }
-        migrated = connection.execute(
+        migrated_history = connection.execute(
             "SELECT date, price, quantity, sale FROM price_history WHERE product_id = 10"
         ).fetchone()
-        current_price_date = connection.execute(
-            "SELECT current_price_date FROM products WHERE id = 10"
-        ).fetchone()[0]
+        current = connection.execute(
+            """
+            SELECT current_price_date, current_price,
+                   current_price_quantity, current_price_sale
+            FROM products WHERE id = 10
+            """
+        ).fetchone()
     finally:
         connection.close()
 
     assert columns["quantity"] == "REAL"
     assert columns["sale"] == "INTEGER"
-    assert dict(migrated) == {
-        "date": 100.0,
-        "price": 5.0,
-        "quantity": 2.0,
-        "sale": 0,
+    assert migrated_history is None
+    assert dict(current) == {
+        "current_price_date": 100.0,
+        "current_price": 5.0,
+        "current_price_quantity": 2.0,
+        "current_price_sale": 0,
     }
-    assert current_price_date == 100.0
 
 
 def test_health_endpoint_initializes_database(tmp_path: object) -> None:
@@ -1386,7 +1682,12 @@ def test_route_candidate_endpoint_uses_saved_tags_without_persisting_results(
             "INSERT INTO price_history (product_id, date, price) VALUES (10, 100, 3.50)"
         )
         connection.execute(
-            "UPDATE products SET current_price_date = 100 WHERE id = 10"
+            """
+            UPDATE products
+            SET current_price_date = 200, current_price = 3.75,
+                current_price_quantity = 1, current_price_sale = 0
+            WHERE id = 10
+            """
         )
     finally:
         connection.close()
