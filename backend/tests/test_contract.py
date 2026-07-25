@@ -28,6 +28,7 @@ from backend.resolvers import (
     update_shopping_list_name,
 )
 from backend.types import (
+    AssistantRecipeImportResponse,
     PriceHistory,
     Product,
     ProductCreate,
@@ -83,6 +84,24 @@ class _FakeTravelMatrixProvider:
                 ],
             ),
         )
+
+
+class _FakeRecipeImportProvider:
+    async def import_recipe(self, recipe_text: str) -> AssistantRecipeImportResponse:
+        assert "tacos" in recipe_text.lower()
+        return AssistantRecipeImportResponse(
+            title="Taco Night",
+            ingredients=[
+                {"name": "Ground Beef", "quantity": "1", "unit": "lb", "tags": ["ground beef"]},
+                {"name": "Corn Tortillas", "quantity": "12", "unit": "count", "tags": ["corn tortilla"]},
+            ],
+            tags=["ground beef", "corn tortilla"],
+            warnings=[],
+        )
+
+    async def answer_question(self, question: str) -> str:
+        assert question
+        return "Cartograph can help plan a grocery trip."
 
 
 def test_price_history_computes_unit_price() -> None:
@@ -1194,6 +1213,76 @@ def test_health_endpoint_initializes_database(tmp_path: object) -> None:
     assert database_path.exists()  # type: ignore[union-attr]
 
 
+def test_recipe_import_endpoint_returns_validated_grocery_items(tmp_path: object) -> None:
+    database_path = tmp_path / "recipe-import.db"  # type: ignore[operator]
+    application = create_app(
+        database_path,
+        recipe_import_provider=_FakeRecipeImportProvider(),
+    )
+
+    with TestClient(application) as client:
+        response = client.post(
+            "/api/v1/assistant/recipe-import",
+            json={"source": "Tacos with ground beef and corn tortillas", "sourceType": "text"},
+        )
+        invalid = client.post(
+            "/api/v1/assistant/recipe-import",
+            json={"source": "   "},
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "title": "Taco Night",
+        "ingredients": [
+            {
+                "name": "Ground Beef",
+                "quantity": "1",
+                "unit": "lb",
+                "note": None,
+                "tags": ["ground beef"],
+            },
+            {
+                "name": "Corn Tortillas",
+                "quantity": "12",
+                "unit": "count",
+                "note": None,
+                "tags": ["corn tortilla"],
+            },
+        ],
+        "tags": ["ground beef", "corn tortilla"],
+        "warnings": [],
+    }
+    assert invalid.status_code == 422
+
+
+def test_recipe_import_endpoint_reports_missing_configuration(tmp_path: object) -> None:
+    database_path = tmp_path / "recipe-import-unconfigured.db"  # type: ignore[operator]
+
+    with TestClient(create_app(database_path)) as client:
+        response = client.post(
+            "/api/v1/assistant/recipe-import",
+            json={"source": "Tacos with ground beef"},
+        )
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "Carter is not configured yet."}
+
+
+def test_carter_chat_endpoint_returns_provider_answer(tmp_path: object) -> None:
+    database_path = tmp_path / "carter-chat.db"  # type: ignore[operator]
+
+    with TestClient(
+        create_app(database_path, recipe_import_provider=_FakeRecipeImportProvider())
+    ) as client:
+        response = client.post(
+            "/api/v1/assistant/chat",
+            json={"message": "How does this app work?"},
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {"message": "Cartograph can help plan a grocery trip."}
+
+
 def test_shopping_list_endpoints_support_crud(tmp_path: object) -> None:
     database_path = tmp_path / "shopping-list-api.db"  # type: ignore[operator]
 
@@ -1395,12 +1484,16 @@ def test_openapi_only_publishes_implemented_operations(tmp_path: object) -> None
 
     assert openapi["info"]["title"] == "Cartograph API"
     assert set(openapi["paths"]) == {
+        "/api/v1/assistant/chat",
+        "/api/v1/assistant/recipe-import",
         "/api/v1/health",
         "/api/v1/shopping-lists",
         "/api/v1/shopping-lists/{shopping_list_id}",
         "/api/v1/shopping-lists/{shopping_list_id}/name",
         "/api/v1/shopping-lists/{shopping_list_id}/route-candidates",
     }
+    assert set(openapi["paths"]["/api/v1/assistant/chat"]) == {"post"}
+    assert set(openapi["paths"]["/api/v1/assistant/recipe-import"]) == {"post"}
     assert set(openapi["paths"]["/api/v1/shopping-lists"]) == {"get", "post"}
     assert set(openapi["paths"]["/api/v1/shopping-lists/{shopping_list_id}"]) == {
         "delete",

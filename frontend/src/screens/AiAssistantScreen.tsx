@@ -1,40 +1,153 @@
 import { useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import {
+  ActivityIndicator,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-export function AiAssistantScreen() {
-  const [recipeSource, setRecipeSource] = useState('');
-  const [message, setMessage] = useState<string | null>(null);
+import { askCarter, importRecipe, toApiError } from '../api';
+import type { RootStackParamList } from '../navigation/types';
+import type {
+  AssistantRecipeImportResponse,
+  RecipeSourceType,
+} from '../types/api';
 
-  const importRecipe = () => {
+type Props = NativeStackScreenProps<RootStackParamList, 'AiAssistant'>;
+type CarterMode = 'list' | 'chat';
+
+export function AiAssistantScreen({ navigation }: Props) {
+  const [recipeSource, setRecipeSource] = useState('');
+  const [sourceType, setSourceType] = useState<RecipeSourceType>('auto');
+  const [carterMode, setCarterMode] = useState<CarterMode>('list');
+  const [result, setResult] = useState<AssistantRecipeImportResponse | null>(null);
+  const [chatReply, setChatReply] = useState<string | null>(null);
+  const [selectedIngredients, setSelectedIngredients] = useState<string[]>([]);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSubmit = async () => {
     const source = recipeSource.trim();
 
     if (!source) {
-      setMessage('Paste a recipe link or ingredients to begin.');
+      setErrorMessage(
+        carterMode === 'list'
+          ? 'Paste a recipe link, recipe text, or meal idea to begin.'
+          : 'Ask Carter a question to begin.',
+      );
       return;
     }
 
-    setMessage('Recipe import is ready to connect to the AI service.');
+    setIsSubmitting(true);
+    setErrorMessage(null);
+    setResult(null);
+    setChatReply(null);
+    try {
+      if (carterMode === 'chat') {
+        const response = await askCarter({ message: source });
+        setChatReply(response.message);
+      } else {
+        const importedRecipe = await importRecipe({ source, sourceType });
+        setResult(importedRecipe);
+        setSelectedIngredients(importedRecipe.ingredients.map((ingredient) => ingredient.name));
+      }
+    } catch (error: unknown) {
+      setErrorMessage(toApiError(error).message);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const toggleIngredient = (name: string) => {
+    setSelectedIngredients((current) =>
+      current.includes(name)
+        ? current.filter((ingredient) => ingredient !== name)
+        : [...current, name],
+    );
+  };
+
+  const useInShoppingList = () => {
+    if (!result || selectedIngredients.length === 0) {
+      return;
+    }
+    navigation.navigate('NewShoppingList', {
+      initialItems: selectedIngredients,
+      title: result.title ?? 'Recipe ingredients',
+    });
   };
 
   return (
     <SafeAreaView edges={['bottom']} style={styles.screen}>
-      <View style={styles.content}>
+      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <Text accessibilityRole="header" style={styles.title}>
-          Recipe Import
+          Ask Carter
         </Text>
         <Text style={styles.description}>
-          Add a recipe link or ingredients, then turn it into a shopping list.
+          {carterMode === 'list'
+            ? 'Paste a recipe, recipe URL, or meal idea. Carter will create an editable shopping list.'
+            : 'Ask about grocery planning, recipes, or how Cartograph works.'}
         </Text>
 
+        <View style={styles.modeRow}>
+          {(['list', 'chat'] as CarterMode[]).map((mode) => (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ selected: carterMode === mode }}
+              key={mode}
+              onPress={() => {
+                setCarterMode(mode);
+                setErrorMessage(null);
+                setResult(null);
+                setChatReply(null);
+              }}
+              style={[styles.modeButton, carterMode === mode && styles.modeButtonSelected]}
+            >
+              <Text style={[styles.modeButtonText, carterMode === mode && styles.modeButtonTextSelected]}>
+                {mode === 'list' ? 'Build list' : 'Ask Carter'}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+
+        {carterMode === 'list' ? (
+        <View style={styles.modeRow}>
+          {(['auto', 'text', 'url'] as RecipeSourceType[]).map((mode) => (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ selected: sourceType === mode }}
+              key={mode}
+              onPress={() => setSourceType(mode)}
+              style={[styles.modeButton, sourceType === mode && styles.modeButtonSelected]}
+            >
+              <Text style={[styles.modeButtonText, sourceType === mode && styles.modeButtonTextSelected]}>
+                {mode === 'auto' ? 'Auto' : mode === 'text' ? 'Recipe text' : 'URL'}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+        ) : null}
+
         <TextInput
-          accessibilityLabel="Recipe link or ingredients"
+          accessibilityLabel={carterMode === 'list' ? 'Recipe link or ingredients' : 'Question for Carter'}
+          editable={!isSubmitting}
           multiline
           onChangeText={(value) => {
             setRecipeSource(value);
-            setMessage(null);
+            setErrorMessage(null);
           }}
-          placeholder="Paste a recipe link or ingredients"
+          placeholder={
+            carterMode === 'chat'
+              ? 'What can Cartograph help me plan?'
+              : sourceType === 'url'
+                ? 'https://example.com/recipe'
+                : 'Paste a recipe or describe a meal, such as high protein pasta with turkey'
+          }
+          placeholderTextColor="#77847D"
           style={styles.input}
           textAlignVertical="top"
           value={recipeSource}
@@ -42,18 +155,77 @@ export function AiAssistantScreen() {
 
         <Pressable
           accessibilityRole="button"
-          onPress={importRecipe}
-          style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]}
+          disabled={isSubmitting}
+          onPress={() => void handleSubmit()}
+          style={({ pressed }) => [styles.button, (pressed || isSubmitting) && styles.buttonPressed]}
         >
-          <Text style={styles.buttonText}>Import Recipe</Text>
+          {isSubmitting ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.buttonText}>{carterMode === 'list' ? 'Create shopping list' : 'Ask Carter'}</Text>}
         </Pressable>
 
-        {message ? (
-          <Text accessibilityLiveRegion="polite" style={styles.message}>
-            {message}
+        {errorMessage ? (
+          <Text accessibilityLiveRegion="assertive" style={styles.errorMessage}>
+            {errorMessage}
           </Text>
         ) : null}
-      </View>
+
+        {chatReply ? (
+          <View style={styles.chatReply}>
+            <Text accessibilityRole="header" style={styles.resultTitle}>Carter</Text>
+            <Text style={styles.chatReplyText}>{chatReply}</Text>
+          </View>
+        ) : null}
+
+        {result ? (
+          <View style={styles.resultSection}>
+            <Text accessibilityRole="header" style={styles.resultTitle}>
+              {result.title ?? 'Suggested ingredients'}
+            </Text>
+            <Text style={styles.resultDescription}>
+              Review the ingredients before adding them to a list.
+            </Text>
+            {result.ingredients.map((ingredient) => {
+              const isSelected = selectedIngredients.includes(ingredient.name);
+              const detail = [ingredient.quantity, ingredient.unit, ingredient.note]
+                .filter((value): value is string => Boolean(value))
+                .join(' ');
+
+              return (
+                <Pressable
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: isSelected }}
+                  key={ingredient.name}
+                  onPress={() => toggleIngredient(ingredient.name)}
+                  style={[styles.ingredientRow, isSelected && styles.ingredientRowSelected]}
+                >
+                  <View style={[styles.checkbox, isSelected && styles.checkboxSelected]}>
+                    {isSelected ? <Text style={styles.checkmark}>✓</Text> : null}
+                  </View>
+                  <View style={styles.ingredientCopy}>
+                    <Text style={styles.ingredientName}>{ingredient.name}</Text>
+                    {detail ? <Text style={styles.ingredientDetail}>{detail}</Text> : null}
+                    <Text style={styles.ingredientTags}>{ingredient.tags.join(' · ')}</Text>
+                  </View>
+                </Pressable>
+              );
+            })}
+            {result.warnings.map((warning) => (
+              <Text key={warning} style={styles.warning}>{warning}</Text>
+            ))}
+            <Pressable
+              accessibilityRole="button"
+              disabled={selectedIngredients.length === 0}
+              onPress={useInShoppingList}
+              style={({ pressed }) => [
+                styles.button,
+                styles.useListButton,
+                (pressed || selectedIngredients.length === 0) && styles.buttonPressed,
+              ]}
+            >
+              <Text style={styles.buttonText}>Use in shopping list</Text>
+            </Pressable>
+          </View>
+        ) : null}
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -64,8 +236,8 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   content: {
-    flex: 1,
     padding: 24,
+    paddingBottom: 40,
   },
   title: {
     color: '#1F2933',
@@ -73,13 +245,31 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   description: {
-    color: '#52606D',
+    color: '#526E5A',
     fontSize: 16,
     lineHeight: 23,
     marginTop: 8,
   },
+  modeRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 20,
+  },
+  modeButton: {
+    borderColor: '#B7C8B7',
+    borderRadius: 6,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  modeButtonSelected: {
+    backgroundColor: '#DFF0DD',
+    borderColor: '#167438',
+  },
+  modeButtonText: { color: '#526E5A', fontSize: 13, fontWeight: '600' },
+  modeButtonTextSelected: { color: '#167438' },
   input: {
-    borderColor: '#9AA5B1',
+    borderColor: '#B7C8B7',
     borderRadius: 8,
     borderWidth: 1,
     color: '#1F2933',
@@ -90,7 +280,7 @@ const styles = StyleSheet.create({
   },
   button: {
     alignItems: 'center',
-    backgroundColor: '#243B53',
+    backgroundColor: '#167438',
     borderRadius: 8,
     justifyContent: 'center',
     marginTop: 16,
@@ -98,16 +288,61 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   buttonPressed: {
-    opacity: 0.8,
+    opacity: 0.65,
   },
   buttonText: {
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '600',
   },
-  message: {
-    color: '#52606D',
+  errorMessage: {
+    color: '#B42318',
     fontSize: 14,
     marginTop: 16,
   },
+  resultSection: {
+    borderTopColor: '#DCE5DC',
+    borderTopWidth: 1,
+    marginTop: 28,
+    paddingTop: 20,
+  },
+  chatReply: {
+    backgroundColor: '#F2F9F0',
+    borderColor: '#DCE5DC',
+    borderRadius: 8,
+    borderWidth: 1,
+    marginTop: 24,
+    padding: 16,
+  },
+  chatReplyText: { color: '#1F2933', fontSize: 15, lineHeight: 22, marginTop: 8 },
+  resultTitle: { color: '#1B2A1E', fontSize: 20, fontWeight: '700' },
+  resultDescription: { color: '#526E5A', fontSize: 14, marginTop: 5 },
+  ingredientRow: {
+    alignItems: 'center',
+    borderColor: '#DCE5DC',
+    borderRadius: 8,
+    borderWidth: 1,
+    flexDirection: 'row',
+    marginTop: 12,
+    padding: 12,
+  },
+  ingredientRowSelected: { backgroundColor: '#F2F9F0', borderColor: '#77A67F' },
+  checkbox: {
+    alignItems: 'center',
+    borderColor: '#7F8D81',
+    borderRadius: 4,
+    borderWidth: 1,
+    height: 22,
+    justifyContent: 'center',
+    marginRight: 12,
+    width: 22,
+  },
+  checkboxSelected: { backgroundColor: '#167438', borderColor: '#167438' },
+  checkmark: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
+  ingredientCopy: { flex: 1 },
+  ingredientName: { color: '#1B2A1E', fontSize: 16, fontWeight: '700' },
+  ingredientDetail: { color: '#526E5A', fontSize: 13, marginTop: 2 },
+  ingredientTags: { color: '#167438', fontSize: 12, marginTop: 4 },
+  warning: { color: '#9A5A00', fontSize: 13, lineHeight: 19, marginTop: 10 },
+  useListButton: { marginTop: 20 },
 });

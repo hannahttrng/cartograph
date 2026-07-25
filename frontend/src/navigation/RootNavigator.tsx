@@ -4,6 +4,7 @@ import { AccountScreen } from '../screens/AccountScreen';
 import { AiAssistantScreen } from '../screens/AiAssistantScreen';
 import { HomeScreen } from '../screens/HomeScreen';
 import { MapScreen } from '../screens/MapScreen';
+import { NearbyDealsScreen } from '../screens/NearbyDealsScreen';
 import { NewShoppingListScreen } from '../screens/NewShoppingListScreen';
 import { RouteResultsScreen } from '../screens/RouteResultsScreen';
 import { ShoppingListScreen } from '../screens/ShoppingListScreen';
@@ -29,6 +30,11 @@ export function RootNavigator() {
         component={AiAssistantScreen}
         name="AiAssistant"
         options={{ title: 'Recipe Import' }}
+      />
+      <Stack.Screen
+        component={NearbyDealsScreen}
+        name="NearbyDeals"
+        options={{ title: 'Nearby Deals' }}
       />
       <Stack.Screen component={AccountScreen} name="Account" options={{ title: 'Account' }} />
       <Stack.Screen component={MapScreen} name="Map" options={{ title: 'Route Map' }} />
