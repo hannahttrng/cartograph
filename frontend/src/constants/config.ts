@@ -47,7 +47,7 @@ export const ARCGIS_ROUTE_SERVICE_URL =
   'https://route-api.arcgis.com/arcgis/rest/services/World/Route/NAServer/Route_World';
 
 export const DEMO_ROUTE_ORIGIN = {
-  label: 'Demo location',
+  label: 'Esri',
   latitude: 34.0556,
   longitude: -117.1825,
 } as const;

@@ -1,7 +1,7 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { ActivityIndicator, FlatList, Text, View } from 'react-native';
+import { Animated, FlatList, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import {
@@ -29,6 +29,45 @@ const routeSortOptions = [
   { label: 'Cheaper', value: 'cheaper' },
   { label: 'Closer', value: 'closer' },
 ] as const;
+
+function RouteLoadingState({ label }: { label: string }) {
+  const progress = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(progress, {
+          duration: 1100,
+          toValue: 1,
+          useNativeDriver: true,
+        }),
+        Animated.timing(progress, {
+          duration: 0,
+          toValue: 0,
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    animation.start();
+    return () => animation.stop();
+  }, [progress]);
+
+  return (
+    <View accessibilityRole="progressbar" style={styles.statePanel}>
+      <View style={styles.loadingRoute}>
+        <View style={styles.loadingLine} />
+        {[0, 1, 2].map((stop) => <View key={stop} style={[styles.loadingStop, { left: stop * 46 }]} />)}
+        <Animated.View
+          style={[
+            styles.loadingCart,
+            { transform: [{ translateX: progress.interpolate({ inputRange: [0, 1], outputRange: [0, 92] }) }] },
+          ]}
+        />
+      </View>
+      <Text accessibilityLiveRegion="polite" style={styles.stateText}>{label}</Text>
+    </View>
+  );
+}
 
 export function RoutesScreen({ navigation }: Props) {
   const [sort, setSort] = useState<RouteSort>('best');
@@ -144,19 +183,9 @@ export function RoutesScreen({ navigation }: Props) {
       />
     );
   } else if (isLoading) {
-    emptyContent = (
-      <View style={styles.statePanel}>
-        <ActivityIndicator color={colors.primary} size="large" />
-        <Text accessibilityLiveRegion="polite" style={styles.stateText}>Loading route results...</Text>
-      </View>
-    );
+    emptyContent = <RouteLoadingState label="Loading route results..." />;
   } else if (calculation?.status === 'RUNNING') {
-    emptyContent = (
-      <View style={styles.statePanel}>
-        <ActivityIndicator color={colors.primary} size="large" />
-        <Text accessibilityLiveRegion="polite" style={styles.stateText}>Calculating routes for your active lists...</Text>
-      </View>
-    );
+    emptyContent = <RouteLoadingState label="Calculating your best routes..." />;
   } else if (calculation?.status === 'FAILED') {
     emptyContent = (
       <EmptyState

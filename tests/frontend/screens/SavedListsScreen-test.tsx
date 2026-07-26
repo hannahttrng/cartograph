@@ -83,6 +83,19 @@ describe('<SavedListsScreen />', () => {
     expect(navigation.navigate).toHaveBeenCalledWith('NewShoppingList', { listId: 7 });
   });
 
+  test('uses a uniform icon instead of name-based text badges', async () => {
+    mockedApi.listShoppingLists.mockResolvedValueOnce([
+      { ...lists[0], name: 'BBQ Night' },
+      { ...lists[1], name: 'Meal Plan' },
+    ]);
+    await renderScreen();
+
+    expect(await screen.findByText('BBQ Night')).toBeOnTheScreen();
+    expect(screen.getByText('Meal Plan')).toBeOnTheScreen();
+    expect(screen.queryByText('BBQ')).not.toBeOnTheScreen();
+    expect(screen.queryByText('MP')).not.toBeOnTheScreen();
+  });
+
   test('filters active and inactive lists from server state', async () => {
     await renderScreen();
     await screen.findByText('Weekend');

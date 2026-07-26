@@ -1,0 +1,94 @@
+{
+  "totalGroceryProducts": 1140,
+  "totalTags": 469,
+  "distinctModifiers": 69,
+  "newInternationalProductRows": 227,
+  "newVariantProductRows": 64,
+  "newBrandedProductRows": 34,
+  "currentSaleProducts": 337,
+  "saleProductsWithDerivableSavings": 337,
+  "staleTextMatches": [],
+  "shoppingListsPreserved": 5,
+  "exampleSavings": [
+    {
+      "name": "Honeycrisp Apples",
+      "regularPrice": 2.21,
+      "salePrice": 1.58,
+      "amountSaved": 0.63,
+      "percentSaved": 29,
+      "isOnSale": true
+    },
+    {
+      "name": "Bananas",
+      "regularPrice": 0.73,
+      "salePrice": 0.59,
+      "amountSaved": 0.14,
+      "percentSaved": 19,
+      "isOnSale": true
+    },
+    {
+      "name": "Whole Milk",
+      "regularPrice": 4.62,
+      "salePrice": 3.38,
+      "amountSaved": 1.24,
+      "percentSaved": 27,
+      "isOnSale": true
+    },
+    {
+      "name": "Large Eggs",
+      "regularPrice": 5.06,
+      "salePrice": 3.72,
+      "amountSaved": 1.34,
+      "percentSaved": 26,
+      "isOnSale": true
+    },
+    {
+      "name": "Sandwich Bread",
+      "regularPrice": 3.82,
+      "salePrice": 2.78,
+      "amountSaved": 1.04,
+      "percentSaved": 27,
+      "isOnSale": true
+    },
+    {
+      "name": "Unsalted Butter",
+      "regularPrice": 5.15,
+      "salePrice": 4.05,
+      "amountSaved": 1.1,
+      "percentSaved": 21,
+      "isOnSale": true
+    },
+    {
+      "name": "Chicken Breasts",
+      "regularPrice": 5.28,
+      "salePrice": 4.5,
+      "amountSaved": 0.78,
+      "percentSaved": 15,
+      "isOnSale": true
+    },
+    {
+      "name": "Ground Beef 80/20",
+      "regularPrice": 5.92,
+      "salePrice": 4.54,
+      "amountSaved": 1.38,
+      "percentSaved": 23,
+      "isOnSale": true
+    },
+    {
+      "name": "Long Grain White Rice",
+      "regularPrice": 8.01,
+      "salePrice": 5.79,
+      "amountSaved": 2.22,
+      "percentSaved": 28,
+      "isOnSale": true
+    },
+    {
+      "name": "Lamb Loin Chops",
+      "regularPrice": 15.13,
+      "salePrice": 11.88,
+      "amountSaved": 3.25,
+      "percentSaved": 21,
+      "isOnSale": true
+    }
+  ]
+}

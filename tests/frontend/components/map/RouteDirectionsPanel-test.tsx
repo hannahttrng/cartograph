@@ -28,7 +28,7 @@ const mapData: MapRouteData = {
   estimatedDistanceMiles: 4.25,
   estimatedTimeMinutes: 11,
   origin: {
-    label: 'Demo location',
+    label: 'Esri',
     latitude: 34.0556,
     longitude: -117.1825,
   },
@@ -85,7 +85,7 @@ test('renders ordered directions and exposes an accessible collapse control', as
 test('renders the fallback as origin, ordered Stores, then the same origin', async () => {
   await render(<RouteMapFallback mapData={mapData} />);
 
-  expect(screen.getAllByText('Demo location')).toHaveLength(2);
+  expect(screen.getAllByText('Esri')).toHaveLength(2);
   expect(screen.getByText('Start')).toBeOnTheScreen();
   expect(screen.getByText('Sprouts')).toBeOnTheScreen();
   expect(screen.getByText('Trader Joes')).toBeOnTheScreen();

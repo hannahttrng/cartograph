@@ -194,7 +194,8 @@ test('renders store-chain headings, one-line metrics, map actions, and persisted
   await fireEvent.press(route);
   expect(screen.getByText('Backend cost score 23.25 · lower is better')).toBeOnTheScreen();
   expect(screen.getByText('Products $12.00')).toBeOnTheScreen();
-  expect(screen.getByText('Store order')).toBeOnTheScreen();
+  expect(screen.getByText('Route destinations')).toBeOnTheScreen();
+  expect(screen.getAllByText('Esri')).toHaveLength(2);
   expect(screen.getByText('Market')).toBeOnTheScreen();
   expect(screen.getByText('Whole Milk')).toBeOnTheScreen();
   expect(screen.getByText('$8.50')).toBeOnTheScreen();
@@ -270,7 +271,7 @@ test('polls a running generation until candidates are ready', async () => {
 
   await renderScreen();
 
-  expect(await screen.findByText('Calculating routes for your active lists...')).toBeOnTheScreen();
+  expect(await screen.findByText('Calculating your best routes...')).toBeOnTheScreen();
   expect(await screen.findByLabelText(/Market → Fresh Fields, rank 1 of 3/, {}, { timeout: 2_500 })).toBeOnTheScreen();
   expect(mockedApi.getRouteCalculation).toHaveBeenCalledTimes(2);
 });

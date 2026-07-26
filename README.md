@@ -652,12 +652,14 @@ reseeding.
 `--database PATH` overrides `CARTOGRAPH_DB_PATH`. A completed run creates:
 
 - 12 Redlands and Highland grocery stores.
-- Exactly 60 Products per store and 720 Product rows total.
+- Exactly 95 Products per store and 1,140 Product rows total.
 - 10 universal product concepts available at all stores.
-- 180 limited-availability concepts stocked by between 1 and 5 stores. Thirty
-	concepts appear in each of 1, 2, 3, and 4 stores, and 60 appear in 5 stores;
-	the deterministic assignment gives every store exactly 50 limited concepts.
-- 286 reusable Tag definitions covering all 2,285 Tag-to-Product memberships,
+- 264 limited-availability concepts stocked by between 1 and 5 stores. Thirty
+	concepts appear in each of 1, 2, 3, and 4 stores, and 144 appear in 5 stores;
+	the expanded fifth band contains 144 concepts and the deterministic assignment
+	gives every store exactly 85 limited concepts.
+- 469 reusable Tag definitions covering international ingredients, aliases,
+	brands, Product variants, and category memberships,
 	with normalized default units and shopping quantities. Common defaults are
 	larger than the prior catalog, including 12 eggs, 2 pounds of bananas, 2
 	pounds of chicken, and 1.5 pounds of ground beef.
@@ -673,15 +675,20 @@ reseeding.
 	memberships.
 - Explicit multiword tags such as `honeycrisp apple` and `ground beef`, stored
 	as single tag values.
-- 311 archived Prices per Product, or 223,920 `price_history` rows total.
+- 311 archived Prices per Product, or 354,540 `price_history` rows total.
 - One Product-owned `currentPrice` containing the final generated observation,
-	for 224,640 generated Prices across current values and history.
+	for 355,680 generated Prices across current values and history.
 
 Generated prices are deterministic for the same seed, cutoff, Product, and
 Store. Explicit Store profiles range from `0.85` for Food 4 Less to `1.15` for
 Gerrards, with deterministic Product-level jitter and wider weekly and
-observation changes. Each observation has a 3.5% sale chance; a sale reduces
-that observation's regular generated price by 15-30%. Seasonal curves remain
+observation changes. Historical observations have a 3.5% sale chance. The
+current observation uses a deterministic 20% sale profile, while featured
+products such as ground beef, dairy, chips, beverages, and household staples
+are guaranteed current promotions. A sale reduces the regular generated price
+by 15-30%; regular price, sale price, amount saved, and percent saved remain
+derivable from the current Price and latest archived non-sale Price without
+changing the existing Price API. Seasonal curves remain
 for relevant produce. Honeycrisp Apples follow the documented `lbs`/quantity
 `1.0` Product contract and are least expensive around the fall harvest.
 

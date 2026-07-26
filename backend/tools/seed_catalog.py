@@ -9,7 +9,7 @@ from backend.types import Tag
 
 
 UNIVERSAL_PRODUCT_COUNT = 10
-LIMITED_PRODUCT_COUNT = 180
+LIMITED_PRODUCT_COUNT = 264
 LIMITED_PRODUCT_ORDER_STRIDE = 37
 
 
@@ -24,6 +24,7 @@ class ProductTemplate:
     seasonal_amplitude: float = 0.0
     modifiers: tuple[str, ...] = ()
     modifier_variants: tuple[str | None, ...] = ()
+    featured_sale: bool = False
 
 
 def _product(
@@ -36,6 +37,7 @@ def _product(
     seasonal_amplitude: float = 0.0,
     modifiers: tuple[str, ...] = (),
     modifier_variants: tuple[str | None, ...] = (),
+    featured_sale: bool = False,
 ) -> ProductTemplate:
     return ProductTemplate(
         name=name,
@@ -47,6 +49,7 @@ def _product(
         seasonal_amplitude=seasonal_amplitude,
         modifiers=modifiers,
         modifier_variants=modifier_variants,
+        featured_sale=featured_sale,
     )
 
 
@@ -65,6 +68,7 @@ UNIVERSAL_PRODUCTS = (
         seasonal_low_month=10,
         seasonal_amplitude=0.20,
         modifier_variants=("origin: washington", "origin: chile", None),
+        featured_sale=True,
     ),
     _product(
         "Bananas",
@@ -73,9 +77,10 @@ UNIVERSAL_PRODUCTS = (
         0.69,
         seasonal_low_month=7,
         seasonal_amplitude=0.04,
+        featured_sale=True,
     ),
-    _product("Whole Milk", ("milk", "dairy"), "gallon", 4.29),
-    _product("Large Eggs", ("egg", "dairy", "protein"), "count", 4.79, 12.0),
+    _product("Whole Milk", ("milk", "dairy"), "gallon", 4.29, featured_sale=True),
+    _product("Large Eggs", ("egg", "dairy", "protein"), "count", 4.79, 12.0, featured_sale=True),
     _product(
         "Sandwich Bread",
         ("bread", "bakery", "wheat"),
@@ -84,8 +89,9 @@ UNIVERSAL_PRODUCTS = (
         modifier_variants=_sparse_brands(
             "brand: nature's own", "brand: dave's killer bread"
         ),
+        featured_sale=True,
     ),
-    _product("Unsalted Butter", ("butter", "dairy"), "oz", 4.99, 16.0),
+    _product("Unsalted Butter", ("butter", "dairy"), "oz", 4.99, 16.0, featured_sale=True),
     _product(
         "Chicken Breasts",
         ("chicken", "poultry", "meat", "protein"),
@@ -94,12 +100,15 @@ UNIVERSAL_PRODUCTS = (
         modifier_variants=_sparse_brands(
             "brand: foster farms", "brand: tyson"
         ),
+        featured_sale=True,
     ),
     _product(
         "Ground Beef 80/20",
-        ("ground beef", "beef", "meat", "protein"),
+        ("ground beef", "beef", "meat", "protein", "80-20", "grilling", "burgers"),
         "lbs",
         5.49,
+        modifiers=("80/20", "family pack"),
+        featured_sale=True,
     ),
     _product(
         "Long Grain White Rice",
@@ -212,7 +221,7 @@ _FORMER_UNIVERSAL_PRODUCTS = (
     ),
     _product(
         "Classic Potato Chips",
-        ("potato chip", "chip", "snack"),
+        ("potato chip", "chip", "chips", "snack"),
         "oz",
         4.99,
         8.0,
@@ -223,7 +232,7 @@ _FORMER_UNIVERSAL_PRODUCTS = (
 
 _EXISTING_LIMITED_PRODUCTS = (
     _product("Bulk Chia Seeds", ("chia seed", "seed", "pantry"), "oz", 8.99, 16.0),
-    _product("Speculoos Cookie Butter", ("cookie butter", "spread", "dessert"), "oz", 3.99, 14.1),
+    _product("Speculoos Cookie Butter", ("cookie butter", "cookie", "cookies", "spread", "dessert"), "oz", 3.99, 14.1),
     _product("Marinated Carne Asada", ("carne asada", "beef", "meat"), "lbs", 9.99),
     _product("Fresh Corn Tortillas", ("corn tortilla", "tortilla", "bakery"), "count", 2.49, 30.0),
     _product("Maple Almond Granola", ("granola", "cereal", "almond"), "oz", 5.49, 12.0),
@@ -407,9 +416,9 @@ _ADDITIONAL_BEVERAGE_PRODUCTS = (
 
 
 _ADDITIONAL_SNACK_PREPARED_PRODUCTS = (
-    _product("Restaurant Style Tortilla Chips", ("tortilla chip", "chip", "snack"), "oz", 4.49, 12.0),
+    _product("Restaurant Style Tortilla Chips", ("tortilla chip", "chip", "chips", "snack"), "oz", 4.49, 12.0, featured_sale=True),
     _product("Sea Salt Pretzel Twists", ("pretzel", "snack"), "oz", 3.99, 16.0),
-    _product("Baked Cheddar Crackers", ("cheddar cracker", "cracker", "snack"), "oz", 4.29, 12.0),
+    _product("Baked Cheddar Crackers", ("cheddar cracker", "cracker", "crackers", "snack"), "oz", 4.29, 12.0),
     _product("Dry Roasted Almonds", ("roasted almond", "almond", "nut", "snack"), "oz", 8.99, 16.0),
     _product("Deluxe Mixed Nuts", ("mixed nut", "nut", "snack"), "oz", 10.99, 16.0),
     _product("Classic Hummus", ("hummus", "dip", "prepared"), "oz", 3.99, 10.0),
@@ -419,6 +428,103 @@ _ADDITIONAL_SNACK_PREPARED_PRODUCTS = (
     _product("Classic Yellow Mustard", ("yellow mustard", "mustard", "condiment"), "oz", 2.49, 20.0),
     _product("Kosher Dill Pickles", ("dill pickle", "pickle", "condiment"), "oz", 4.99, 24.0),
     _product("Deli Macaroni Salad", ("macaroni salad", "deli", "prepared"), "lbs", 5.49),
+)
+
+
+_INTERNATIONAL_AND_VARIANT_PRODUCTS = (
+    # Korean
+    _product("Korean Gochugaru Chile Flakes", ("gochugaru", "korean", "spicy", "chile flake", "pantry"), "oz", 6.49, 7.0, modifiers=("imported", "product of korea", "shelf stable")),
+    _product("Fermented Gochujang Chile Paste", ("gochujang", "korean", "spicy", "condiment", "fermented"), "oz", 5.99, 17.6, modifiers=("imported", "product of korea", "refrigerated")),
+    _product("Traditional Doenjang Soybean Paste", ("doenjang", "korean", "condiment", "fermented"), "oz", 6.49, 16.0, modifiers=("imported", "product of korea", "refrigerated")),
+    _product("Korean Ssamjang Dipping Paste", ("ssamjang", "korean", "dip", "condiment", "fermented"), "oz", 5.49, 17.6, modifiers=("imported", "product of korea", "refrigerated")),
+    _product("Napa Cabbage Kimchi", ("kimchi", "korean", "napa cabbage", "fermented", "side dish"), "oz", 7.99, 16.0, modifiers=("refrigerated", "spicy", "vegan")),
+    _product("Korean Rice Cakes Tteok", ("rice cake", "tteok", "korean", "rice", "refrigerated"), "oz", 5.99, 16.0, modifiers=("imported", "product of korea", "gluten free")),
+    _product("Korean Singo Pear", ("korean pear", "asian pear", "korean", "fruit"), "count", 4.99, 2.0, modifiers=("imported", "product of korea", "fresh")),
+    _product("Korean BBQ Marinade", ("korean bbq sauce", "bulgogi sauce", "korean", "marinade", "condiment"), "oz", 5.49, 16.9, modifiers=("shelf stable",)),
+    _product("Korean Roasted Seaweed", ("roasted seaweed", "gim", "korean", "seaweed", "snack"), "count", 5.99, 12.0, modifiers=("imported", "product of korea", "snack size")),
+    # Japanese
+    _product("White Miso Paste", ("miso paste", "miso", "japanese", "fermented", "condiment"), "oz", 6.49, 17.6, modifiers=("imported", "product of japan", "refrigerated")),
+    _product("Hon Mirin Cooking Wine", ("mirin", "japanese", "cooking wine", "pantry"), "oz", 7.49, 13.0, modifiers=("imported", "product of japan", "shelf stable")),
+    _product("Citrus Ponzu Sauce", ("ponzu", "japanese", "citrus sauce", "condiment"), "oz", 4.99, 15.0, modifiers=("shelf stable",)),
+    _product("Japanese Panko Breadcrumbs", ("panko breadcrumbs", "panko", "japanese", "breadcrumbs", "pantry"), "oz", 3.99, 8.0, modifiers=("shelf stable",)),
+    _product("Nori Sesame Furikake", ("furikake", "japanese", "rice seasoning", "seaweed", "pantry"), "oz", 5.49, 2.0, modifiers=("imported", "product of japan", "shelf stable")),
+    _product("Dried Bonito Flakes", ("bonito flakes", "katsuobushi", "japanese", "seafood", "pantry"), "oz", 7.99, 2.5, modifiers=("imported", "product of japan", "high protein")),
+    _product("Buckwheat Soba Noodles", ("soba noodles", "soba", "japanese", "noodles", "pantry"), "oz", 4.49, 9.5, modifiers=("shelf stable", "vegetarian")),
+    _product("Japanese Udon Noodles", ("udon noodles", "udon", "japanese", "noodles", "refrigerated"), "oz", 4.99, 14.0, modifiers=("refrigerated", "vegetarian")),
+    _product("Premium Sushi Rice", ("sushi rice", "short grain rice", "japanese", "rice", "pantry"), "lbs", 12.99, 5.0, modifiers=("premium", "product of usa", "shelf stable")),
+    # Chinese
+    _product("Premium Oyster Sauce", ("oyster sauce", "chinese", "umami", "condiment"), "oz", 5.49, 18.0, modifiers=("imported", "shelf stable")),
+    _product("Chinkiang Black Vinegar", ("black vinegar", "chinkiang vinegar", "chinese", "vinegar", "pantry"), "oz", 4.99, 18.6, modifiers=("imported", "shelf stable")),
+    _product("Sichuan Crunchy Chili Oil", ("chili oil", "chinese", "sichuan", "spicy", "condiment"), "oz", 8.99, 7.4, modifiers=("premium", "spicy", "shelf stable")),
+    _product("Chinese Hoisin Sauce", ("hoisin sauce", "hoisin", "chinese", "condiment"), "oz", 4.29, 20.0, modifiers=("shelf stable",)),
+    _product("Shaoxing Cooking Wine", ("shaoxing wine", "chinese cooking wine", "chinese", "pantry"), "oz", 6.99, 25.4, modifiers=("imported", "shelf stable")),
+    _product("Baby Bok Choy", ("bok choy", "baby bok choy", "chinese", "leafy", "vegetable"), "lbs", 3.49, modifiers=("fresh", "locally grown")),
+    _product("Fresh Napa Cabbage", ("napa cabbage", "chinese cabbage", "chinese", "leafy", "vegetable"), "lbs", 2.49, modifiers=("fresh",)),
+    # Thai and Vietnamese
+    _product("Thai Fish Sauce", ("fish sauce", "thai", "vietnamese", "condiment", "umami"), "oz", 5.99, 23.6, modifiers=("imported", "shelf stable")),
+    _product("Fresh Thai Basil", ("thai basil", "thai", "basil", "herb"), "bunch", 2.49, modifiers=("fresh", "locally grown")),
+    _product("Thai Red Curry Paste", ("curry paste", "red curry paste", "thai", "spicy", "condiment"), "oz", 4.49, 14.0, modifiers=("imported", "spicy", "refrigerated")),
+    _product("Thai Coconut Cream", ("coconut cream", "thai", "coconut", "canned", "pantry"), "oz", 2.99, 13.5, modifiers=("vegan", "shelf stable")),
+    _product("Fresh Lemongrass Stalks", ("lemongrass", "thai", "vietnamese", "herb"), "count", 2.99, 3.0, modifiers=("fresh",)),
+    _product("Vietnamese Rice Paper", ("rice paper", "spring roll wrapper", "vietnamese", "pantry"), "count", 4.49, 30.0, modifiers=("gluten free", "vegan", "shelf stable")),
+    _product("Rice Vermicelli Noodles", ("vermicelli noodles", "rice noodles", "vietnamese", "noodles", "pantry"), "oz", 4.29, 14.0, modifiers=("gluten free", "vegan", "shelf stable")),
+    _product("Sambal Oelek Chile Paste", ("sambal", "chile paste", "southeast asian", "spicy", "condiment"), "oz", 4.99, 8.0, modifiers=("spicy", "vegan", "refrigerated")),
+    # Indian
+    _product("Garam Masala Spice Blend", ("garam masala", "indian", "spice blend", "pantry"), "oz", 4.99, 2.0, modifiers=("imported", "shelf stable")),
+    _product("Fresh Curry Leaves", ("curry leaves", "indian", "herb", "fresh"), "oz", 3.49, 1.0, modifiers=("imported", "refrigerated")),
+    _product("Indian Paneer Cheese", ("paneer", "indian", "cheese", "vegetarian", "protein"), "oz", 7.49, 12.0, modifiers=("refrigerated", "vegetarian", "high protein")),
+    _product("Ground Turmeric", ("turmeric", "indian", "spice", "pantry"), "oz", 3.99, 2.0, modifiers=("shelf stable",)),
+    _product("Whole Cumin Seeds", ("cumin seed", "cumin", "indian", "spice", "pantry"), "oz", 3.99, 2.0, modifiers=("shelf stable",)),
+    _product("Green Cardamom Pods", ("cardamom", "indian", "spice", "pantry"), "oz", 8.99, 2.0, modifiers=("premium", "imported", "shelf stable")),
+    _product("Aged Basmati Rice", ("basmati rice", "basmati", "indian", "rice", "pantry"), "lbs", 12.49, 5.0, modifiers=("premium", "imported", "shelf stable")),
+    # Mediterranean and Middle Eastern
+    _product("Greek Tzatziki Dip", ("tzatziki", "mediterranean", "greek", "dip", "refrigerated"), "oz", 5.49, 12.0, modifiers=("refrigerated", "vegetarian", "high protein")),
+    _product("Mediterranean Hummus", ("hummus", "mediterranean", "dip", "refrigerated", "vegan"), "oz", 4.49, 10.0, modifiers=("refrigerated", "vegan", "non gmo")),
+    _product("Greek Feta Cheese Block", ("feta cheese", "feta", "mediterranean", "greek", "cheese"), "oz", 6.49, 8.0, modifiers=("imported", "product of greece", "refrigerated")),
+    _product("Kalamata Olives", ("kalamata olives", "olive", "mediterranean", "greek", "pantry"), "oz", 5.99, 10.0, modifiers=("imported", "product of greece", "shelf stable")),
+    _product("Traditional Pita Bread", ("pita bread", "pita", "mediterranean", "middle eastern", "bakery"), "count", 3.99, 6.0, modifiers=("fresh", "vegetarian")),
+    _product("Stone Ground Tahini", ("tahini", "sesame paste", "mediterranean", "middle eastern", "condiment"), "oz", 7.49, 16.0, modifiers=("vegan", "shelf stable")),
+    _product("North African Harissa Paste", ("harissa", "north african", "mediterranean", "spicy", "condiment"), "oz", 6.49, 5.3, modifiers=("imported", "spicy", "refrigerated")),
+    _product("Zaatar Spice Blend", ("zaatar", "za'atar", "middle eastern", "spice blend", "pantry"), "oz", 5.49, 2.5, modifiers=("imported", "shelf stable")),
+    _product("Ground Sumac", ("sumac", "middle eastern", "spice", "pantry"), "oz", 5.99, 2.0, modifiers=("imported", "shelf stable")),
+    _product("Creamy Labneh", ("labneh", "middle eastern", "yogurt", "dip", "refrigerated"), "oz", 6.49, 16.0, modifiers=("refrigerated", "vegetarian", "high protein")),
+    _product("Pomegranate Molasses", ("pomegranate molasses", "middle eastern", "syrup", "condiment"), "oz", 6.99, 10.0, modifiers=("imported", "vegan", "shelf stable")),
+    # Latin American
+    _product("Aged Cotija Cheese", ("cotija cheese", "cotija", "latin american", "mexican", "cheese"), "oz", 6.49, 10.0, modifiers=("product of mexico", "refrigerated")),
+    _product("Traditional Queso Fresco", ("queso fresco", "latin american", "mexican", "cheese"), "oz", 5.99, 10.0, modifiers=("refrigerated", "vegetarian")),
+    _product("White Corn Masa Harina", ("masa harina", "corn flour", "latin american", "mexican", "pantry"), "lbs", 4.99, 4.0, modifiers=("gluten free", "shelf stable")),
+    _product("Tajin Clasico Seasoning", ("tajin", "brand: tajin", "latin american", "mexican", "seasoning"), "oz", 4.49, 5.0, modifiers=("brand: tajin", "product of mexico", "shelf stable")),
+    _product("Chipotle Peppers in Adobo", ("chipotle peppers", "chipotle", "adobo", "latin american", "mexican"), "oz", 2.49, 7.0, modifiers=("spicy", "shelf stable")),
+    _product("Fresh Tomatillos", ("tomatillos", "tomatillo", "latin american", "mexican", "vegetable"), "lbs", 2.49, modifiers=("fresh", "product of mexico")),
+    _product("Adobo All Purpose Seasoning", ("adobo seasoning", "adobo", "latin american", "seasoning", "pantry"), "oz", 4.29, 8.0, modifiers=("shelf stable",)),
+    # Ground beef and produce variants
+    _product("Ground Beef 70/30", ("ground beef 70/30", "ground beef", "beef", "70-30", "burgers", "protein"), "lbs", 4.79, modifiers=("70/30", "family pack", "fresh"), featured_sale=True),
+    _product("Ground Beef 73/27", ("ground beef 73/27", "ground beef", "beef", "73-27", "burgers", "protein"), "lbs", 4.99, modifiers=("73/27", "value pack", "fresh"), featured_sale=True),
+    _product("Ground Beef 85/15", ("ground beef 85/15", "ground beef", "beef", "85-15", "grilling", "protein"), "lbs", 5.99, modifiers=("85/15", "fresh"), featured_sale=True),
+    _product("Ground Beef 90/10", ("ground beef 90/10", "ground beef", "lean beef", "90-10", "meal prep", "protein"), "lbs", 6.49, modifiers=("90/10", "high protein", "fresh")),
+    _product("Ground Beef 93/7", ("ground beef 93/7", "ground beef", "lean beef", "93-7", "meal prep", "healthy", "protein"), "lbs", 6.99, modifiers=("93/7", "high protein", "fresh")),
+    _product("Grass-Fed Ground Beef", ("grass fed ground beef", "ground beef", "beef", "grass fed", "protein"), "lbs", 8.99, modifiers=("grass fed", "premium", "product of usa", "fresh")),
+    _product("Organic Ground Beef", ("organic ground beef", "ground beef", "beef", "organic", "protein"), "lbs", 9.49, modifiers=("organic", "premium", "product of usa", "fresh")),
+    _product("European Carrots", ("european carrots", "carrot", "produce", "vegetable", "european", "imported"), "lbs", 3.49, modifiers=("imported", "product of france", "fresh")),
+    _product("Rainbow Carrots", ("rainbow carrots", "carrot", "produce", "vegetable"), "lbs", 3.99, modifiers=("locally grown", "fresh")),
+    _product("Baby Carrots", ("baby carrots", "carrot", "produce", "vegetable"), "lbs", 2.49, modifiers=("refrigerated", "fresh", "snack size")),
+    _product("Organic Carrots", ("organic carrots", "carrot", "produce", "vegetable", "organic"), "lbs", 3.49, modifiers=("organic", "locally grown", "fresh")),
+    _product("Vine-Ripened Tomatoes", ("vine tomatoes", "tomato", "produce", "vegetable"), "lbs", 2.99, modifiers=("locally grown", "fresh")),
+    _product("Fuji Apples", ("fuji apples", "fuji apple", "apple", "fruit"), "lbs", 1.89, modifiers=("product of usa", "fresh"), featured_sale=True),
+    _product("Pink Lady Apples", ("pink lady apples", "pink lady apple", "apple", "fruit"), "lbs", 2.29, modifiers=("product of usa", "fresh"), featured_sale=True),
+    _product("Yukon Gold Potatoes", ("yukon gold potatoes", "yukon gold potato", "potato", "vegetable"), "lbs", 5.49, 5.0, modifiers=("product of usa", "fresh")),
+    _product("Red Potatoes", ("red potatoes", "red potato", "potato", "vegetable"), "lbs", 4.99, 5.0, modifiers=("product of usa", "fresh")),
+    _product("Fingerling Potatoes", ("fingerling potatoes", "fingerling potato", "potato", "vegetable"), "lbs", 4.49, 2.0, modifiers=("premium", "fresh")),
+    # Branded promotional staples
+    _product("Cheetos Crunchy Cheese Snacks", ("cheetos", "brand: cheetos", "chips", "snack"), "oz", 5.49, 8.5, modifiers=("brand: cheetos", "party size", "shelf stable"), featured_sale=True),
+    _product("Doritos Nacho Cheese Chips", ("doritos", "brand: doritos", "chips", "tortilla chip", "snack"), "oz", 5.99, 9.3, modifiers=("brand: doritos", "party size", "shelf stable"), featured_sale=True),
+    _product("Oreo Chocolate Sandwich Cookies", ("oreo", "brand: oreo", "cookie", "cookies", "snack"), "oz", 5.49, 14.3, modifiers=("brand: oreo", "family pack", "shelf stable"), featured_sale=True),
+    _product("Ritz Original Crackers", ("ritz", "brand: ritz", "cracker", "crackers", "snack"), "oz", 4.99, 13.7, modifiers=("brand: ritz", "family pack", "shelf stable"), featured_sale=True),
+    _product("Coca-Cola 12-Pack", ("coca cola", "brand: coca-cola", "cola", "soda", "beverage"), "count", 9.99, 12.0, modifiers=("brand: coca-cola", "party size", "shelf stable"), featured_sale=True),
+    _product("Pepsi 12-Pack", ("pepsi", "brand: pepsi", "cola", "soda", "beverage"), "count", 9.49, 12.0, modifiers=("brand: pepsi", "party size", "shelf stable"), featured_sale=True),
+    _product("Gatorade Fruit Punch 8-Pack", ("gatorade", "brand: gatorade", "sports drink", "beverage"), "count", 8.99, 8.0, modifiers=("brand: gatorade", "value pack", "shelf stable"), featured_sale=True),
+    _product("Bounty Paper Towels 6-Pack", ("bounty", "brand: bounty", "paper towels", "household"), "count", 14.99, 6.0, modifiers=("brand: bounty", "bulk", "coupon eligible"), featured_sale=True),
+    _product("Charmin Toilet Paper 12-Pack", ("charmin", "brand: charmin", "toilet paper", "household"), "count", 16.99, 12.0, modifiers=("brand: charmin", "bulk", "coupon eligible"), featured_sale=True),
 )
 
 
@@ -447,6 +553,7 @@ SPECIALTY_PRODUCTS = _spread_limited_products(
     + _ADDITIONAL_BAKERY_PRODUCTS
     + _ADDITIONAL_BEVERAGE_PRODUCTS
     + _ADDITIONAL_SNACK_PREPARED_PRODUCTS
+    + _INTERNATIONAL_AND_VARIANT_PRODUCTS
 )
 
 

@@ -48,7 +48,7 @@ export default function LoginScreen({ navigation }: Props) {
       });
       navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
     } catch {
-      Alert.alert('Login unavailable', 'Your demo session could not be saved. Please try again.');
+      Alert.alert('Login unavailable', 'Your session could not be saved. Please try again.');
     } finally {
       setIsEntering(false);
     }
@@ -82,9 +82,9 @@ export default function LoginScreen({ navigation }: Props) {
         </View>
 
         <View style={styles.form}>
-          <Text style={styles.formPrompt}>Enter any demo name and email.</Text>
+          <Text style={styles.formPrompt}>Sign in to save lists and shopping preferences.</Text>
           <TextInput
-            accessibilityLabel="Demo name"
+            accessibilityLabel="Name"
             autoCapitalize="words"
             editable={!isEntering}
             onChangeText={setName}
@@ -94,7 +94,7 @@ export default function LoginScreen({ navigation }: Props) {
             value={name}
           />
           <TextInput
-            accessibilityLabel="Demo email"
+            accessibilityLabel="Email"
             autoCapitalize="none"
             editable={!isEntering}
             keyboardType="email-address"
@@ -107,8 +107,8 @@ export default function LoginScreen({ navigation }: Props) {
             value={email}
           />
         </View>
-        <Pressable accessibilityLabel="Enter Cartograph demo" accessibilityRole="button" accessibilityState={{ busy: isEntering, disabled: !canEnter }} disabled={!canEnter} onPress={() => void login()} style={({ pressed }) => [styles.loginControl, (!canEnter || pressed) && styles.loginControlDisabled]}>
-          {isEntering ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.loginControlText}>Enter Demo</Text>}
+        <Pressable accessibilityLabel="Sign in" accessibilityRole="button" accessibilityState={{ busy: isEntering, disabled: !canEnter }} disabled={!canEnter} onPress={() => void login()} style={({ pressed }) => [styles.loginControl, (!canEnter || pressed) && styles.loginControlDisabled]}>
+          {isEntering ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.loginControlText}>Sign In</Text>}
         </Pressable>
         <View style={styles.orRow}><View style={styles.divider} /><Text style={styles.or}>or</Text><View style={styles.divider} /></View>
         <Pressable accessibilityRole="button" onPress={() => navigation.navigate('Register')}>

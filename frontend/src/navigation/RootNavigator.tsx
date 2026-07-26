@@ -5,7 +5,6 @@ import { AiAssistantScreen } from '../screens/AiAssistantScreen';
 import { HomeScreen } from '../screens/HomeScreen';
 import { ImportRecipesScreen } from '../screens/ImportRecipesScreen';
 import LoginScreen from '../screens/LoginScreen';
-import { LocationMapScreen } from '../screens/LocationMapScreen';
 import { RegisterScreen } from '../screens/RegisterScreen';
 import { MapScreen } from '../screens/MapScreen';
 import { NearbyDealsScreen } from '../screens/NearbyDealsScreen';
@@ -21,7 +20,6 @@ export function RootNavigator() {
   return (
     <Stack.Navigator initialRouteName="Login">
       <Stack.Screen component={HomeScreen} name="Home" options={{ headerShown: false }} />
-      <Stack.Screen component={LocationMapScreen} name="LocationMap" options={{ headerShown: false }} />
       <Stack.Screen component={LoginScreen} name="Login" options={{ headerShown: false }} />
       <Stack.Screen component={RegisterScreen} name="Register" options={{ headerShown: false }} />
       <Stack.Screen component={ImportRecipesScreen} name="ImportRecipes" options={{ headerShown: false }} />

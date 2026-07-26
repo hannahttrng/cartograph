@@ -24,6 +24,7 @@ from backend.tools.seed import (
     UNIVERSAL_PRODUCTS,
     WEEKS_OF_HISTORY,
     SeedDataExistsError,
+    PROMOTION_MODIFIERS,
     _clear_domain_data,
     _sale_discount,
     build_parser,
@@ -56,24 +57,24 @@ EXPECTED_MULTIWORD_TAGS = {
 def test_catalog_has_balanced_product_availability() -> None:
     assert len(STORES) == 12
     assert len(UNIVERSAL_PRODUCTS) == 10
-    assert len(SPECIALTY_PRODUCTS) == 180
+    assert len(SPECIALTY_PRODUCTS) == 264
     assert [
         len(products_for_store(store_index)) for store_index in range(len(STORES))
-    ] == [60] * len(STORES)
+    ] == [95] * len(STORES)
     assert [
         len(products_for_store(store_index)) - len(UNIVERSAL_PRODUCTS)
         for store_index in range(len(STORES))
-    ] == [50] * len(STORES)
+    ] == [85] * len(STORES)
 
     coverage = Counter(
         len(specialty_store_indices(product_index))
         for product_index in range(len(SPECIALTY_PRODUCTS))
     )
-    assert coverage == Counter({1: 30, 2: 30, 3: 30, 4: 30, 5: 60})
-    assert sum(store_count * count for store_count, count in coverage.items()) == 600
+    assert coverage == Counter({1: 30, 2: 30, 3: 30, 4: 30, 5: 144})
+    assert sum(store_count * count for store_count, count in coverage.items()) == 1020
 
     products = UNIVERSAL_PRODUCTS + SPECIALTY_PRODUCTS
-    assert len({product.name for product in products}) == len(products) == 190
+    assert len({product.name for product in products}) == len(products) == 274
     assert all(
         len(set(specialty_store_indices(product_index)))
         == len(specialty_store_indices(product_index))
@@ -120,6 +121,81 @@ def test_tag_catalog_covers_memberships_with_shopping_defaults() -> None:
         catalog["ground beef"].default_unit,
         catalog["ground beef"].default_quantity,
     ) == ("lbs", 1.5)
+
+
+def test_catalog_contains_international_ingredients_variants_and_brand_aliases() -> None:
+    products = {
+        product.name: product for product in UNIVERSAL_PRODUCTS + SPECIALTY_PRODUCTS
+    }
+    tags = {tag.tag for tag in TAGS}
+
+    assert {
+        "Korean Gochugaru Chile Flakes",
+        "Fermented Gochujang Chile Paste",
+        "Greek Tzatziki Dip",
+        "Indian Paneer Cheese",
+        "Thai Fish Sauce",
+        "Vietnamese Rice Paper",
+        "Ground Beef 70/30",
+        "Ground Beef 93/7",
+        "European Carrots",
+        "Pink Lady Apples",
+        "Yukon Gold Potatoes",
+        "Doritos Nacho Cheese Chips",
+    } <= set(products)
+    assert {
+        "gochugaru",
+        "gochujang",
+        "tzatziki",
+        "paneer",
+        "fish sauce",
+        "rice paper",
+        "ground beef 93/7",
+        "european carrots",
+        "chips",
+        "crackers",
+        "cookies",
+        "brand: doritos",
+        "brand: oreo",
+        "brand: coca-cola",
+    } <= tags
+    assert products["Ground Beef 70/30"].modifiers == (
+        "70/30",
+        "family pack",
+        "fresh",
+    )
+    assert products["Greek Tzatziki Dip"].modifiers == (
+        "refrigerated",
+        "vegetarian",
+        "high protein",
+    )
+
+
+def test_featured_sale_has_regular_reference_and_promotional_metadata() -> None:
+    ground_beef = next(
+        product
+        for product in UNIVERSAL_PRODUCTS
+        if product.name == "Ground Beef 80/20"
+    )
+    history = generate_price_history(
+        ground_beef,
+        store_index=0,
+        as_of=date(2026, 7, 24),
+        seed=2026,
+    )
+    modifiers = generate_modifiers(
+        ground_beef,
+        history[-1],
+        store_index=0,
+        seed=2026,
+    )
+
+    assert history[-2].sale is False
+    assert history[-1].sale is True
+    assert history[-1].price < history[-2].price
+    assert 0.10 <= 1 - history[-1].price / history[-2].price <= 0.35
+    assert "on sale" in modifiers
+    assert set(modifiers) & set(PROMOTION_MODIFIERS)
 
 
 def test_honeycrisp_apples_match_the_product_spec() -> None:
@@ -642,12 +718,20 @@ def test_seed_database_writes_expected_rows_and_relationships(
     }
     assert histories_per_product == {311}
     assert set(honeycrisp_tags) == {"honeycrisp apple", "apple", "fruit"}
-    assert set(ground_beef_tags) == {"ground beef", "beef", "meat", "protein"}
+    assert set(ground_beef_tags) == {
+        "ground beef",
+        "beef",
+        "meat",
+        "protein",
+        "80-20",
+        "grilling",
+        "burgers",
+    }
     assert set(universal_store_counts.values()) == {len(STORES)}
     assert len(universal_store_counts) == len(UNIVERSAL_PRODUCTS)
-    assert len(specialty_store_counts) == 180
+    assert len(specialty_store_counts) == 264
     assert Counter(specialty_store_counts) == Counter(
-        {1: 30, 2: 30, 3: 30, 4: 30, 5: 60}
+        {1: 30, 2: 30, 3: 30, 4: 30, 5: 144}
     )
     assert missing_current_prices == 0
     assert datetime.fromtimestamp(latest_observation, timezone.utc).date() == date(

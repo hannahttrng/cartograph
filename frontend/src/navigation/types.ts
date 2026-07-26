@@ -13,7 +13,6 @@ interface MapRouteInput {
 
 export type RootStackParamList = {
   Home: undefined;
-  LocationMap: undefined;
   Login: undefined;
   Register: undefined;
   ImportRecipes: undefined;

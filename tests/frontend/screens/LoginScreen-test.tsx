@@ -49,11 +49,11 @@ test('accepts demo text and enters after a short simulated delay', async () => {
     </SafeAreaProvider>,
   );
 
-  await fireEvent.changeText(screen.getByLabelText('Demo name'), 'Hannah');
-  await fireEvent.changeText(screen.getByLabelText('Demo email'), 'hannah@example.com');
-  await fireEvent.press(screen.getByLabelText('Enter Cartograph demo'));
+  await fireEvent.changeText(screen.getByLabelText('Name'), 'Hannah');
+  await fireEvent.changeText(screen.getByLabelText('Email'), 'hannah@example.com');
+  await fireEvent.press(screen.getByLabelText('Sign in'));
 
-  expect(screen.getByLabelText('Enter Cartograph demo').props.accessibilityState.busy).toBe(true);
+  expect(screen.getByLabelText('Sign in').props.accessibilityState.busy).toBe(true);
   expect(navigation.reset).not.toHaveBeenCalled();
 
   await act(async () => {

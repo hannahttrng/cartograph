@@ -21,17 +21,6 @@ import type { EntityId, ShoppingListResponse } from '../types/api';
 type Props = NativeStackScreenProps<RootStackParamList, 'SavedLists'>;
 type ListFilter = 'all' | 'active' | 'inactive';
 
-const listIconNames = ['grocery', 'mealPrep', 'bbq', 'household', 'costco'] as const;
-
-function iconNameForList(list: Pick<ShoppingListResponse, 'name'>, index: number) {
-  const name = list.name.toLocaleLowerCase();
-  if (name.includes('costco')) return 'costco';
-  if (name.includes('dinner') || name.includes('meal')) return 'mealPrep';
-  if (name.includes('bbq') || name.includes('grill')) return 'bbq';
-  if (name.includes('house')) return 'household';
-  return listIconNames[index % listIconNames.length];
-}
-
 const filters = [
   { label: 'All Lists', value: 'all' },
   { label: 'Active', value: 'active' },
@@ -149,7 +138,7 @@ export function SavedListsScreen({ navigation }: Props) {
           </View>
         ) : visibleLists.length === 0 ? (
           <EmptyState description={emptyDescription} title={filter === 'all' ? 'No shopping lists' : `No ${filter} lists`} />
-        ) : visibleLists.map((list, index) => (
+        ) : visibleLists.map((list) => (
           <View key={list.id}>
             <View style={styles.listCard}>
               <Pressable
@@ -158,7 +147,7 @@ export function SavedListsScreen({ navigation }: Props) {
                 onPress={() => navigation.navigate('NewShoppingList', { listId: list.id })}
                 style={({ pressed }) => [styles.listMain, pressed && styles.pressed]}
               >
-                <ListIcon iconName={iconNameForList(list, index)} size={38} />
+                <ListIcon iconName="grocery" size={38} />
                 <View style={styles.listCopy}>
                   <Text style={styles.listName}>{list.name}</Text>
                   <Text style={styles.listMeta}>{list.items.length} {list.items.length === 1 ? 'item' : 'items'} · {list.active ? 'Included in routes' : 'Saved for later'}</Text>

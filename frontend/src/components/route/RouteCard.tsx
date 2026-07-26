@@ -110,10 +110,17 @@ export function RouteCard({
             <Text style={styles.scoreComponent}>Stores ${route.scoreComponents.storeCost.toFixed(2)}</Text>
             <Text style={styles.scoreComponent}>Preferences ${route.scoreComponents.modifierPenalty.toFixed(2)}</Text>
           </View>
-          <Text accessibilityRole="header" style={styles.detailsTitle}>Store order</Text>
+          <Text accessibilityRole="header" style={styles.detailsTitle}>Route destinations</Text>
+          <View style={styles.endpointRow}>
+            <View style={styles.endpointIcon}><Text style={styles.endpointIconText}>S</Text></View>
+            <View><Text style={styles.endpointName}>Esri</Text><Text style={styles.endpointLabel}>Start</Text></View>
+          </View>
           {route.stores.map((store, storeIndex) => (
             <View key={store.id} style={styles.stop}>
-              <Text style={styles.stopNumber}>{storeIndex + 1}</Text>
+              <View style={styles.destinationIcon}>
+                <MapPinIcon height={18} width={13} />
+                <Text style={styles.destinationNumber}>{storeIndex + 1}</Text>
+              </View>
               <View style={styles.stopContent}>
                 <Text style={styles.storeName}>{store.name}</Text>
                 <Text style={styles.storeAddress}>{store.address}</Text>
@@ -166,6 +173,10 @@ export function RouteCard({
               </View>
             </View>
           ))}
+          <View style={styles.endpointRow}>
+            <View style={[styles.endpointIcon, styles.endpointIconReturn]}><Text style={styles.endpointIconText}>E</Text></View>
+            <View><Text style={styles.endpointName}>Esri</Text><Text style={styles.endpointLabel}>Return</Text></View>
+          </View>
           {unmatched.length > 0 ? (
             <View style={styles.unmatched}>
               <Text style={styles.unmatchedTitle}>Not matched</Text>
@@ -323,18 +334,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     marginTop: 14,
   },
-  stopNumber: {
-    backgroundColor: colors.primaryMuted,
-    borderRadius: 15,
-    color: colors.primary,
-    fontFamily: 'Monda_700Bold',
-    fontSize: 13,
-    height: 30,
-    lineHeight: 30,
-    overflow: 'hidden',
-    textAlign: 'center',
-    width: 30,
-  },
+  destinationIcon: { alignItems: 'center', backgroundColor: colors.primaryMuted, borderRadius: 16, height: 32, justifyContent: 'center', width: 32 },
+  destinationNumber: { color: colors.primaryDark, fontFamily: 'Monda_700Bold', fontSize: 8, position: 'absolute', top: 8 },
+  endpointRow: { alignItems: 'center', flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm },
+  endpointIcon: { alignItems: 'center', backgroundColor: colors.primaryDark, borderRadius: 16, height: 32, justifyContent: 'center', width: 32 },
+  endpointIconReturn: { backgroundColor: colors.primary },
+  endpointIconText: { color: colors.textInverse, fontFamily: 'Monda_700Bold', fontSize: 11 },
+  endpointName: { ...typography.bodyStrong, color: colors.text },
+  endpointLabel: { ...typography.caption, color: colors.textMuted },
   stopContent: {
     flex: 1,
     marginLeft: 12,

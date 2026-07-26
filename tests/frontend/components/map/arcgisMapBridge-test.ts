@@ -11,7 +11,7 @@ const mapData: MapRouteData = {
   estimatedDistanceMiles: 4.25,
   estimatedTimeMinutes: 11,
   origin: {
-    label: 'Demo location',
+    label: 'Esri',
     latitude: 34.0556,
     longitude: -117.1825,
   },

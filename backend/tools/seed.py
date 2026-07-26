@@ -28,8 +28,16 @@ WEEKLY_DRIFT_PERSISTENCE = 0.65
 WEEKLY_DRIFT_INNOVATION = 0.035
 OBSERVATION_NOISE = 0.012
 SALE_PROBABILITY = 0.035
+CURRENT_SALE_PROBABILITY = 0.20
 MINIMUM_SALE_DISCOUNT = 0.15
 MAXIMUM_SALE_DISCOUNT = 0.30
+PROMOTION_MODIFIERS = (
+    "manager special",
+    "member discount",
+    "coupon eligible",
+    "buy one get one",
+    "clearance",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -169,8 +177,9 @@ def generate_price_history(
     )
     weekly_drift = 0.0
     history: list[Price] = []
+    observations = observation_dates(as_of)
 
-    for observation_index, observed_on in enumerate(observation_dates(as_of)):
+    for observation_index, observed_on in enumerate(observations):
         if observation_index % OBSERVATIONS_PER_WEEK == 0:
             weekly_drift = (
                 WEEKLY_DRIFT_PERSISTENCE * weekly_drift
@@ -184,6 +193,10 @@ def generate_price_history(
             OBSERVATION_NOISE,
         )
         sale = generator.random() < SALE_PROBABILITY
+        if observation_index == len(observations) - 2 and product.featured_sale:
+            sale = False
+        elif observation_index == len(observations) - 1:
+            sale = product.featured_sale or generator.random() < CURRENT_SALE_PROBABILITY
         sale_discount = _sale_discount(generator, sale)
         regular_multiplier = (
             store_multiplier
@@ -229,7 +242,17 @@ def generate_modifiers(
         if variant is not None:
             modifiers.append(variant)
     if current_price.sale:
-        modifiers.append("on sale")
+        if "on sale" not in modifiers:
+            modifiers.append("on sale")
+        promotion_digest = hashlib.sha256(
+            f"{seed}:promotion:{store_index}:{product.name}".encode("utf-8")
+        ).digest()
+        promotion = PROMOTION_MODIFIERS[
+            int.from_bytes(promotion_digest[:4], "big")
+            % len(PROMOTION_MODIFIERS)
+        ]
+        if promotion not in modifiers:
+            modifiers.append(promotion)
     return tuple(modifiers)
 
 
