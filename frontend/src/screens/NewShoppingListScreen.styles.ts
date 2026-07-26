@@ -27,13 +27,6 @@ export const styles = StyleSheet.create({
     flexDirection: 'row',
     minHeight: 74,
   },
-  backButton: {
-    alignItems: 'center',
-    height: 38,
-    justifyContent: 'center',
-    transform: [{ rotate: '-90deg' }],
-    width: 38,
-  },
   headerCopy: {
     flex: 1,
     marginHorizontal: 8,
@@ -155,10 +148,17 @@ export const styles = StyleSheet.create({
     paddingHorizontal: 13,
   },
   checkbox: {
-    color: '#258043',
-    fontSize: 17,
+    alignItems: 'center',
+    borderColor: '#258043',
+    borderRadius: 4,
+    borderWidth: 1.5,
+    height: 18,
+    justifyContent: 'center',
     marginRight: 10,
+    width: 18,
   },
+  checkboxChecked: { backgroundColor: '#258043' },
+  checkmark: { color: '#FFFFFF', fontFamily: 'Monda_700Bold', fontSize: 12, lineHeight: 14 },
   itemName: {
     color: '#262224',
     flex: 1,
@@ -170,6 +170,7 @@ export const styles = StyleSheet.create({
     fontFamily: 'Monda_400Regular',
     fontSize: 10,
     marginHorizontal: 10,
+    textAlign: 'center',
   },
   editText: {
     color: '#35824B',

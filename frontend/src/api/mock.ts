@@ -104,6 +104,13 @@ const cloneRoutes = (): GetRoutesResponse =>
 const mockRecipeFor = (
   request: AssistantRecipeImportRequest,
 ): AssistantRecipeImportResponse => {
+  if (request.sourceType === 'url') {
+    throw new ApiError(
+      'Recipe links cannot be fetched in mock mode. Set EXPO_PUBLIC_USE_MOCK_DATA=false, restart Metro, and run the Cartograph backend.',
+      { code: 'MOCK_RECIPE_URL_UNAVAILABLE' },
+    );
+  }
+
   const source = request.source.toLowerCase();
 
   if (source.includes('taco')) {

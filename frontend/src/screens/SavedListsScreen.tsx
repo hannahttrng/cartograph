@@ -12,7 +12,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { listShoppingLists, toApiError } from '../api';
-import { AppBottomNav, DesignIcon, EmptyState, FilterTabs } from '../components/common';
+import { AppBottomNav, DesignIcon, DisclosureArrow, EmptyState, FilterTabs } from '../components/common';
+import { ListIcon } from '../components/list/ListIcon';
 import type { RootStackParamList } from '../navigation/types';
 import { colors, radius, spacing, typography } from '../theme';
 import type { EntityId, ShoppingListResponse } from '../types/api';
@@ -26,6 +27,17 @@ import {
 
 type Props = NativeStackScreenProps<RootStackParamList, 'SavedLists'>;
 type ListFilter = 'all' | 'favorites' | 'archived';
+
+const listIconNames = ['grocery', 'mealPrep', 'bbq', 'household', 'costco'] as const;
+
+function iconNameForList(list: Pick<ShoppingListResponse, 'name'>, index: number) {
+  const name = list.name.toLocaleLowerCase();
+  if (name.includes('costco')) return 'costco';
+  if (name.includes('dinner') || name.includes('meal')) return 'mealPrep';
+  if (name.includes('bbq') || name.includes('grill')) return 'bbq';
+  if (name.includes('house')) return 'household';
+  return listIconNames[index % listIconNames.length];
+}
 
 const filters = [
   { label: 'All Lists', value: 'all' },
@@ -168,7 +180,7 @@ export function SavedListsScreen({ navigation }: Props) {
           </View>
         ) : visibleLists.length === 0 ? (
           <EmptyState description={emptyDescription} title={filter === 'all' ? 'No shopping lists' : `No ${filter} lists`} />
-        ) : visibleLists.map((list) => (
+        ) : visibleLists.map((list, index) => (
           <View key={list.id} style={styles.listCard}>
             <Pressable
               accessibilityLabel={`Edit ${list.name}`}
@@ -176,11 +188,12 @@ export function SavedListsScreen({ navigation }: Props) {
               onPress={() => navigation.navigate('NewShoppingList', { listId: list.id })}
               style={({ pressed }) => [styles.listMain, pressed && styles.pressed]}
             >
-              <View style={styles.bag}><DesignIcon name="shoppingBag" size={24} /></View>
+              <ListIcon iconName={iconNameForList(list, index)} size={38} />
               <View style={styles.listCopy}>
                 <Text style={styles.listName}>{list.name}</Text>
                 <Text style={styles.listMeta}>{list.items.length} {list.items.length === 1 ? 'item' : 'items'} · {list.status}</Text>
               </View>
+              <DisclosureArrow direction="right" style={styles.arrow} />
             </Pressable>
             <Pressable
               accessibilityLabel={`${metadataForList(metadata, list.id).favorite ? 'Remove' : 'Add'} ${list.name} favorite`}
@@ -190,7 +203,7 @@ export function SavedListsScreen({ navigation }: Props) {
               onPress={() => void toggleFavorite(list.id)}
               style={styles.favoriteButton}
             >
-              <DesignIcon name={metadataForList(metadata, list.id).favorite ? 'favorite' : 'star'} size={24} />
+              <DesignIcon name={metadataForList(metadata, list.id).favorite ? 'starFilled' : 'star'} size={24} />
             </Pressable>
           </View>
         ))}
@@ -212,14 +225,13 @@ const styles = StyleSheet.create({
   content: { gap: spacing.sm, paddingBottom: spacing.xl, paddingHorizontal: spacing.lg },
   listCard: { alignItems: 'center', backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radius.md, borderWidth: 1, flexDirection: 'row', minHeight: 91, overflow: 'hidden' },
   listMain: { alignItems: 'center', flex: 1, flexDirection: 'row', minHeight: 89, padding: spacing.md },
-  bag: { alignItems: 'center', backgroundColor: colors.primaryMuted, borderRadius: radius.md, height: 38, justifyContent: 'center', width: 38 },
-  bagLabel: { color: colors.primary, fontSize: 20 },
   listCopy: { flex: 1, marginHorizontal: spacing.sm },
   listName: typography.bodyStrong,
   listMeta: { ...typography.caption, marginTop: spacing.xxs },
   star: { color: colors.borderStrong, fontSize: 22 },
   starActive: { color: colors.warning },
   favoriteButton: { alignItems: 'center', height: 52, justifyContent: 'center', marginRight: spacing.md, width: 42 },
+  arrow: { marginLeft: spacing.xs },
   statePanel: { alignItems: 'center', justifyContent: 'center', minHeight: 220, padding: spacing.lg },
   stateText: { ...typography.body, color: colors.textMuted, marginTop: spacing.sm, textAlign: 'center' },
   errorText: { ...typography.body, color: colors.danger, textAlign: 'center' },

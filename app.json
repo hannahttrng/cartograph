@@ -4,7 +4,9 @@
     "slug": "cartograph",
     "version": "0.1.0",
     "scheme": "cartograph",
+    "icon": "./frontend/assets/images/cartograph-app-icon.png",
     "ios": {
+      "icon": "./frontend/assets/images/cartograph-app-icon.png",
       "bundleIdentifier": "com.cartograph.app",
       "supportsTablet": true
     },

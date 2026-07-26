@@ -13,7 +13,6 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import BuildListMascot from '../../assets/svg icons/Group 15.svg';
-import BackIcon from '../../assets/svg icons/keyboard_arrow_up.svg';
 import {
   createShoppingList,
   deleteShoppingList,
@@ -23,7 +22,7 @@ import {
   toApiError,
   updateShoppingListName,
 } from '../api';
-import { AppBottomNav, DesignIcon } from '../components/common';
+import { AppBottomNav, BackButton, DesignIcon } from '../components/common';
 import type { RootStackParamList } from '../navigation/types';
 import type {
   CatalogTag,
@@ -398,7 +397,7 @@ export function NewShoppingListScreen({ navigation, route }: Props) {
     <SafeAreaView edges={['top']} style={styles.screen}>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <View style={styles.designHeader}>
-          <Pressable accessibilityLabel="Go back" onPress={() => navigation.goBack()} style={styles.backButton}><BackIcon height={25} width={25} /></Pressable>
+          <BackButton onPress={() => navigation.goBack()} />
           <View style={styles.headerCopy}><Text accessibilityRole="header" style={styles.designHeading}>{baseline ? 'Edit List' : 'Build a List'}</Text><Text style={styles.designSupporting}>Catalog-backed items save directly to Cartograph.</Text></View>
           <Pressable accessibilityLabel="Open profile" onPress={() => navigation.navigate('Account')} style={styles.profileButton}><DesignIcon name="person" size={23} /></Pressable>
         </View>
@@ -451,7 +450,9 @@ export function NewShoppingListScreen({ navigation, route }: Props) {
           <View>
             {items.map((item) => (
               <View key={item.tag} style={styles.itemRow}>
-                <Text style={styles.checkbox}>✓</Text>
+                <View style={[styles.checkbox, styles.checkboxChecked]}>
+                  <Text style={styles.checkmark}>✓</Text>
+                </View>
                 <Text style={styles.itemName}>{item.tag}</Text>
                 <Text style={styles.itemPrice}>{itemDetails(item, catalog)}</Text>
                 <Pressable
@@ -538,7 +539,9 @@ export function NewShoppingListScreen({ navigation, route }: Props) {
             </Pressable>
           </View>
           <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: isArchived }} onPress={() => setIsArchived((current) => !current)} style={styles.archiveRow}>
-            <Text style={styles.checkbox}>{isArchived ? '✓' : ''}</Text>
+            <View style={[styles.checkbox, isArchived && styles.checkboxChecked]}>
+              {isArchived ? <Text style={styles.checkmark}>✓</Text> : null}
+            </View>
             <Text style={styles.archiveText}>Archive this list</Text>
           </Pressable>
         </View>

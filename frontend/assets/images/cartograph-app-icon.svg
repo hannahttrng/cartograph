@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <rect width="1024" height="1024" fill="#0D3A17"/>
+  <path d="M172 704C262 627 309 599 384 608C475 619 498 728 593 720C687 712 713 608 844 540" fill="none" stroke="#2D8C4A" stroke-width="28" stroke-linecap="round" stroke-dasharray="12 54"/>
+  <image href="../svg icons/cartograph-18/Group 68.svg" x="555" y="126" width="302" height="357"/>
+  <path d="M243 326H326L369 550H700L761 382H343" fill="none" stroke="#F5FFF1" stroke-width="48" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M390 550L408 642H681" fill="none" stroke="#F5FFF1" stroke-width="48" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="430" cy="710" r="40" fill="#96F9A3"/>
+  <circle cx="659" cy="710" r="40" fill="#96F9A3"/>
+  <path d="M439 434H690M470 382L497 550M585 382L567 550" fill="none" stroke="#96F9A3" stroke-width="22" stroke-linecap="round"/>
+</svg>

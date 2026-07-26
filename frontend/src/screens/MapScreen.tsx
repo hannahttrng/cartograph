@@ -16,7 +16,7 @@ export function MapScreen({ route }: Props) {
   const { route: selectedRoute, routeId } = route.params;
   const mapData = useMemo<MapRouteData>(
     () => ({
-      routeId,
+      routeId: routeId ?? 'local-preview',
       stores: selectedRoute.stores,
       distance: selectedRoute.distance,
       time: selectedRoute.time,

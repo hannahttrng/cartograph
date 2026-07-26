@@ -4,8 +4,7 @@ import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import RecipeMascot from '../../assets/svg icons/Group 14.svg';
-import BackIcon from '../../assets/svg icons/keyboard_arrow_up.svg';
-import { AppBottomNav, DesignIcon } from '../components/common';
+import { AppBottomNav, BackButton, DesignIcon } from '../components/common';
 import type { RootStackParamList } from '../navigation/types';
 
 export function ImportRecipesScreen({ navigation }: NativeStackScreenProps<RootStackParamList, 'ImportRecipes'>) {
@@ -20,9 +19,7 @@ export function ImportRecipesScreen({ navigation }: NativeStackScreenProps<RootS
     <SafeAreaView edges={['top']} style={styles.screen}>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <View style={styles.topRow}>
-          <Pressable accessibilityLabel="Go back" hitSlop={12} onPress={() => navigation.goBack()} style={styles.backButton}>
-            <BackIcon height={25} width={25} />
-          </Pressable>
+          <BackButton onPress={() => navigation.goBack()} style={styles.backButton} />
           <View style={styles.headingCopy}>
             <Text accessibilityRole="header" style={styles.title}>Import Recipes</Text>
             <Text style={styles.subtitle}>Paste your recipe ingredients and we’ll help you chart your cart.</Text>
@@ -61,7 +58,7 @@ const styles = StyleSheet.create({
   screen: { backgroundColor: '#FFFFFF', flex: 1 },
   content: { flexGrow: 1, paddingBottom: 28, paddingHorizontal: 24 },
   topRow: { alignItems: 'flex-start', flexDirection: 'row', marginTop: 24 },
-  backButton: { alignItems: 'center', height: 40, justifyContent: 'center', marginLeft: -18, marginTop: 42, transform: [{ rotate: '-90deg' }], width: 40 },
+  backButton: { marginLeft: -18, marginTop: 42 },
   headingCopy: { flex: 1, minWidth: 0, paddingTop: 42 },
   title: { color: '#090909', fontFamily: 'Monda_700Bold', fontSize: 20 },
   subtitle: { color: '#626268', fontFamily: 'Monda_700Bold', fontSize: 13, lineHeight: 22, marginTop: 4 },

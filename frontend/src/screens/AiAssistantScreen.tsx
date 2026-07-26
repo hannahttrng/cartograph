@@ -1,7 +1,9 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import {
   ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -11,58 +13,68 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import CarterAvatar from '../../assets/svg icons/screens-pt3/Group 87.svg';
 import { askCarter, importRecipe, toApiError } from '../api';
-import { AppBottomNav, DesignIcon } from '../components/common';
+import { AppBottomNav, BackButton, DesignIcon } from '../components/common';
 import type { RootStackParamList } from '../navigation/types';
-import type {
-  AssistantChatMessage,
-  AssistantRecipeImportResponse,
-  RecipeSourceType,
-} from '../types/api';
+import { colors, fontFamily, spacing } from '../theme';
+import type { AssistantChatMessage, AssistantRecipeImportResponse } from '../types/api';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'AiAssistant'>;
-type CarterMode = 'list' | 'chat';
+
+const greeting: AssistantChatMessage = {
+  role: 'assistant',
+  content: 'Hello, Carter here. How can I assist you?',
+};
+
+type CarterMode = 'chat' | 'idea' | 'url';
+
+const modeOptions: ReadonlyArray<{ label: string; mode: CarterMode }> = [
+  { label: 'Chat', mode: 'chat' },
+  { label: 'Meal idea', mode: 'idea' },
+  { label: 'Recipe URL', mode: 'url' },
+];
+
+const normalizeRecipeUrl = (source: string): string => {
+  const normalized = source.trim();
+  if (normalized.startsWith('//')) {
+    return `https:${normalized}`;
+  }
+  if (!/^[a-z][a-z\d+.-]*:\/\//i.test(normalized)) {
+    return `https://${normalized}`;
+  }
+  return normalized;
+};
 
 export function AiAssistantScreen({ navigation }: Props) {
-  const [recipeSource, setRecipeSource] = useState('');
-  const [sourceType, setSourceType] = useState<RecipeSourceType>('auto');
-  const [carterMode, setCarterMode] = useState<CarterMode>('list');
-  const [result, setResult] = useState<AssistantRecipeImportResponse | null>(null);
-  const [chatMessages, setChatMessages] = useState<AssistantChatMessage[]>([]);
-  const [selectedIngredients, setSelectedIngredients] = useState<string[]>([]);
+  const scrollRef = useRef<ScrollView>(null);
+  const recipeRequestIdRef = useRef(0);
+  const [draft, setDraft] = useState('');
+  const [messages, setMessages] = useState<AssistantChatMessage[]>([greeting]);
+  const [mode, setMode] = useState<CarterMode>('chat');
+  const [recipeResult, setRecipeResult] = useState<AssistantRecipeImportResponse | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSubmit = async () => {
-    const source = recipeSource.trim();
-
-    if (!source) {
-      setErrorMessage(
-        carterMode === 'list'
-          ? 'Paste a recipe link, recipe text, or meal idea to begin.'
-          : 'Ask Carter a question to begin.',
-      );
+  const sendMessage = async () => {
+    const content = draft.trim();
+    if (!content || isSubmitting) {
       return;
     }
 
+    const history = messages.slice(-12);
+    const userMessage: AssistantChatMessage = { role: 'user', content };
+    setMessages((current) => [...current, userMessage]);
+    setDraft('');
     setIsSubmitting(true);
     setErrorMessage(null);
-    setResult(null);
+
     try {
-      if (carterMode === 'chat') {
-        const history = chatMessages.slice(-12);
-        const response = await askCarter({ message: source, messages: history });
-        setChatMessages((currentMessages) => [
-          ...currentMessages,
-          { role: 'user', content: source },
-          { role: 'assistant', content: response.message },
-        ]);
-        setRecipeSource('');
-      } else {
-        const importedRecipe = await importRecipe({ source, sourceType });
-        setResult(importedRecipe);
-        setSelectedIngredients(importedRecipe.ingredients.map((ingredient) => ingredient.name));
-      }
+      const response = await askCarter({ message: content, messages: history });
+      setMessages((current) => [
+        ...current,
+        { role: 'assistant', content: response.message },
+      ]);
     } catch (error: unknown) {
       setErrorMessage(toApiError(error).message);
     } finally {
@@ -70,326 +82,276 @@ export function AiAssistantScreen({ navigation }: Props) {
     }
   };
 
-  const toggleIngredient = (name: string) => {
-    setSelectedIngredients((current) =>
-      current.includes(name)
-        ? current.filter((ingredient) => ingredient !== name)
-        : [...current, name],
-    );
-  };
-
-  const useInShoppingList = () => {
-    if (!result || selectedIngredients.length === 0) {
+  const buildRecipeList = async () => {
+    const source = mode === 'url' ? normalizeRecipeUrl(draft) : draft.trim();
+    if (!source || isSubmitting || mode === 'chat') {
       return;
     }
-    const selectedTags = result.ingredients
-      .filter((ingredient) => selectedIngredients.includes(ingredient.name))
-      .flatMap((ingredient) => ingredient.tags);
+
+    const requestId = ++recipeRequestIdRef.current;
+    setIsSubmitting(true);
+    setErrorMessage(null);
+    setRecipeResult(null);
+
+    try {
+      const result = await importRecipe({
+        source,
+        sourceType: mode === 'url' ? 'url' : 'text',
+      });
+      if (recipeRequestIdRef.current === requestId) {
+        setDraft(source);
+        setRecipeResult(result);
+      }
+    } catch (error: unknown) {
+      if (recipeRequestIdRef.current === requestId) {
+        setErrorMessage(toApiError(error).message);
+      }
+    } finally {
+      if (recipeRequestIdRef.current === requestId) {
+        setIsSubmitting(false);
+      }
+    }
+  };
+
+  const selectMode = (nextMode: CarterMode) => {
+    recipeRequestIdRef.current += 1;
+    setMode(nextMode);
+    setDraft('');
+    setRecipeResult(null);
+    setErrorMessage(null);
+    setIsSubmitting(false);
+  };
+
+  const createShoppingList = () => {
+    if (!recipeResult) {
+      return;
+    }
+
+    const initialTags = [...new Set([
+      ...recipeResult.tags,
+      ...recipeResult.ingredients.flatMap((ingredient) => ingredient.tags),
+    ])];
     navigation.navigate('NewShoppingList', {
-      initialItems: selectedIngredients,
-      initialTags: [...new Set(selectedTags)],
-      title: result.title ?? 'Recipe ingredients',
+      initialItems: recipeResult.ingredients.map((ingredient) => ingredient.name),
+      initialTags,
+      title: recipeResult.title ?? (mode === 'url' ? 'Imported Recipe' : 'Carter Meal Idea'),
     });
   };
 
   return (
-    <SafeAreaView edges={['top', 'bottom']} style={styles.screen}>
-      <ScrollView
-        bounces
-        contentContainerStyle={styles.content}
-        keyboardDismissMode="on-drag"
-        keyboardShouldPersistTaps="handled"
-        nestedScrollEnabled
-        scrollEnabled
-        showsVerticalScrollIndicator
-        style={styles.scrollView}
+    <SafeAreaView edges={['top']} style={styles.screen}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        style={styles.keyboardView}
       >
-        <Text accessibilityRole="header" style={styles.title}>
-          Ask Carter
-        </Text>
-        <Text style={styles.description}>
-          {carterMode === 'list'
-            ? 'Paste a recipe, recipe URL, or meal idea. Carter will create an editable shopping list.'
-            : 'Ask about grocery planning, recipes, or how Cartograph works.'}
-        </Text>
-
-        <View style={styles.modeRow}>
-          {(['list', 'chat'] as CarterMode[]).map((mode) => (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityState={{ selected: carterMode === mode }}
-              key={mode}
-              onPress={() => {
-                setCarterMode(mode);
-                setErrorMessage(null);
-                setResult(null);
-                setChatMessages([]);
-              }}
-              style={[styles.modeButton, carterMode === mode && styles.modeButtonSelected]}
-            >
-              <Text style={[styles.modeButtonText, carterMode === mode && styles.modeButtonTextSelected]}>
-                {mode === 'list' ? 'Build list' : 'Ask Carter'}
-              </Text>
-            </Pressable>
-          ))}
+        <View style={styles.header}>
+          <BackButton onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('Home')} style={styles.backButton} />
+          <View style={styles.headerCopy}>
+            <Text accessibilityRole="header" style={styles.title}>Carter AI</Text>
+            <Text style={styles.subtitle}>Your Grocery Assistant</Text>
+          </View>
+          <Pressable accessibilityLabel="Open profile" onPress={() => navigation.navigate('Account')} style={styles.profileButton}>
+            <DesignIcon name="person" size={24} />
+          </Pressable>
         </View>
 
-        {carterMode === 'list' ? (
-        <View style={styles.modeRow}>
-          {(['auto', 'text', 'url'] as RecipeSourceType[]).map((mode) => (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityState={{ selected: sourceType === mode }}
-              key={mode}
-              onPress={() => setSourceType(mode)}
-              style={[styles.modeButton, sourceType === mode && styles.modeButtonSelected]}
-            >
-              <Text style={[styles.modeButtonText, sourceType === mode && styles.modeButtonTextSelected]}>
-                {mode === 'auto' ? 'Auto' : mode === 'text' ? 'Recipe text' : 'URL'}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-        ) : null}
-
-        <TextInput
-          accessibilityLabel={carterMode === 'list' ? 'Recipe link or ingredients' : 'Question for Carter'}
-          editable={!isSubmitting}
-          multiline
-          onChangeText={(value) => {
-            setRecipeSource(value);
-            setErrorMessage(null);
-          }}
-          placeholder={
-            carterMode === 'chat'
-              ? 'What can Cartograph help me plan?'
-              : sourceType === 'url'
-                ? 'https://example.com/recipe'
-                : 'Paste a recipe or describe a meal, such as high protein pasta with turkey'
-          }
-          placeholderTextColor="#77847D"
-          style={styles.input}
-          textAlignVertical="top"
-          value={recipeSource}
-        />
-
-        <Pressable
-          accessibilityRole="button"
-          disabled={isSubmitting}
-          onPress={() => void handleSubmit()}
-          style={({ pressed }) => [styles.button, (pressed || isSubmitting) && styles.buttonPressed]}
-        >
-          {isSubmitting ? <ActivityIndicator color="#FFFFFF" /> : <View style={styles.buttonContent}><Text style={styles.buttonText}>{carterMode === 'list' ? 'Create shopping list' : 'Ask Carter'}</Text><DesignIcon name={carterMode === 'list' ? 'plus' : 'send'} size={20} /></View>}
-        </Pressable>
-
-        {errorMessage ? (
-          <Text accessibilityLiveRegion="assertive" style={styles.errorMessage}>
-            {errorMessage}
-          </Text>
-        ) : null}
-
-        {carterMode === 'chat' && chatMessages.length > 0 ? (
-          <View style={styles.chatTranscript}>
-            {chatMessages.map((message, index) => (
-              <View
-                key={`${message.role}-${index}`}
-                style={message.role === 'user' ? styles.userMessage : styles.chatReply}
+        <View accessibilityRole="tablist" style={styles.modeTabs}>
+          {modeOptions.map((option) => {
+            const isActive = mode === option.mode;
+            return (
+              <Pressable
+                accessibilityRole="tab"
+                accessibilityState={{ selected: isActive }}
+                key={option.mode}
+                onPress={() => selectMode(option.mode)}
+                style={[styles.modeTab, isActive && styles.modeTabActive]}
               >
-                <Text style={styles.chatMessageLabel}>
-                  {message.role === 'user' ? 'You' : 'Carter'}
-                </Text>
-                <Text style={styles.chatReplyText}>{message.content}</Text>
+                <Text style={[styles.modeTabLabel, isActive && styles.modeTabLabelActive]}>{option.label}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+
+        {mode === 'chat' ? (
+          <ScrollView
+            contentContainerStyle={styles.messages}
+            keyboardDismissMode="on-drag"
+            keyboardShouldPersistTaps="handled"
+            onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: true })}
+            ref={scrollRef}
+            showsVerticalScrollIndicator={false}
+          >
+            {messages.map((message, index) => (
+              <View key={`${message.role}-${index}`} style={message.role === 'user' ? styles.userRow : styles.carterRow}>
+                {message.role === 'assistant' ? (
+                  <View style={styles.carterAvatar}><CarterAvatar height={58} width={63} /></View>
+                ) : null}
+                <View style={message.role === 'user' ? styles.userBubble : styles.carterBubble}>
+                  <Text style={styles.messageText}>{message.content}</Text>
+                </View>
               </View>
             ))}
-          </View>
-        ) : null}
+            {isSubmitting ? (
+              <View style={styles.carterRow}>
+                <View style={styles.carterAvatar}><CarterAvatar height={58} width={63} /></View>
+                <View style={styles.loadingBubble}><ActivityIndicator color={colors.primary} /></View>
+              </View>
+            ) : null}
+            {errorMessage ? <Text accessibilityLiveRegion="assertive" style={styles.error}>{errorMessage}</Text> : null}
+          </ScrollView>
+        ) : (
+          <ScrollView contentContainerStyle={styles.recipeContent} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+            <View style={styles.recipeIntro}>
+              <View style={styles.recipeMascot}><CarterAvatar height={66} width={72} /></View>
+              <View style={styles.recipeIntroCopy}>
+                <Text style={styles.recipeTitle}>{mode === 'url' ? 'Import a recipe' : 'Turn an idea into a list'}</Text>
+                <Text style={styles.recipeDescription}>
+                  {mode === 'url'
+                    ? 'Paste a public recipe link. I’ll pull out the ingredients for you.'
+                    : 'Describe a dish, occasion, or craving. I’ll suggest the ingredients.'}
+                </Text>
+              </View>
+            </View>
 
-        {result ? (
-          <View style={styles.resultSection}>
-            <Text accessibilityRole="header" style={styles.resultTitle}>
-              {result.title ?? 'Suggested ingredients'}
-            </Text>
-            <Text style={styles.resultDescription}>
-              Review the ingredients before adding them to a list.
-            </Text>
-            {result.ingredients.map((ingredient) => {
-              const isSelected = selectedIngredients.includes(ingredient.name);
-              const detail = [ingredient.quantity, ingredient.unit, ingredient.note]
-                .filter((value): value is string => Boolean(value))
-                .join(' ');
+            <View style={styles.recipeInputCard}>
+              <Text style={styles.inputLabel}>{mode === 'url' ? 'Recipe link' : 'What are you making?'}</Text>
+              <TextInput
+                accessibilityLabel={mode === 'url' ? 'Recipe URL' : 'Meal idea'}
+                autoCapitalize={mode === 'url' ? 'none' : 'sentences'}
+                autoCorrect={mode !== 'url'}
+                editable={!isSubmitting}
+                keyboardType={mode === 'url' ? 'url' : 'default'}
+                key={`recipe-input-${mode}`}
+                multiline={mode === 'idea'}
+                onChangeText={(value) => {
+                  setDraft(value);
+                  setRecipeResult(null);
+                  setErrorMessage(null);
+                }}
+                placeholder={mode === 'url' ? 'https://example.com/recipe' : 'Kimchi jjigae for four people'}
+                placeholderTextColor={colors.textMuted}
+                style={[styles.recipeInput, mode === 'idea' && styles.recipeIdeaInput]}
+                value={draft}
+              />
+              <Pressable
+                accessibilityRole="button"
+                disabled={!draft.trim() || isSubmitting}
+                onPress={() => void buildRecipeList()}
+                style={({ pressed }) => [styles.recipeAction, (!draft.trim() || isSubmitting) && styles.actionDisabled, pressed && styles.actionPressed]}
+              >
+                {isSubmitting ? <ActivityIndicator color={colors.textInverse} /> : <DesignIcon name="shoppingBag" size={20} />}
+                <Text style={styles.recipeActionLabel}>{isSubmitting ? 'Building list...' : 'Find ingredients'}</Text>
+              </Pressable>
+            </View>
 
-              return (
-                <Pressable
-                  accessibilityRole="checkbox"
-                  accessibilityState={{ checked: isSelected }}
-                  key={ingredient.name}
-                  onPress={() => toggleIngredient(ingredient.name)}
-                  style={[styles.ingredientRow, isSelected && styles.ingredientRowSelected]}
-                >
-                  <View style={[styles.checkbox, isSelected && styles.checkboxSelected]}>
-                    {isSelected ? <Text style={styles.checkmark}>✓</Text> : null}
-                  </View>
-                  <View style={styles.ingredientCopy}>
+            {errorMessage ? <Text accessibilityLiveRegion="assertive" style={styles.error}>{errorMessage}</Text> : null}
+
+            {recipeResult ? (
+              <View style={styles.resultCard}>
+                <Text style={styles.resultEyebrow}>CARTER’S LIST</Text>
+                <Text style={styles.resultTitle}>{recipeResult.title ?? 'Recipe ingredients'}</Text>
+                {recipeResult.ingredients.map((ingredient) => (
+                  <View key={`${ingredient.name}-${ingredient.quantity ?? ''}`} style={styles.ingredientRow}>
+                    <View style={styles.ingredientDot} />
                     <Text style={styles.ingredientName}>{ingredient.name}</Text>
-                    {detail ? <Text style={styles.ingredientDetail}>{detail}</Text> : null}
-                    <Text style={styles.ingredientTags}>{ingredient.tags.join(' · ')}</Text>
+                    {ingredient.quantity ? (
+                      <Text style={styles.ingredientQuantity}>{ingredient.quantity}{ingredient.unit ? ` ${ingredient.unit}` : ''}</Text>
+                    ) : null}
                   </View>
+                ))}
+                {recipeResult.warnings.map((warning) => (
+                  <Text accessibilityLiveRegion="polite" key={warning} style={styles.warningText}>
+                    {warning}
+                  </Text>
+                ))}
+                <Pressable accessibilityRole="button" onPress={createShoppingList} style={({ pressed }) => [styles.createListButton, pressed && styles.actionPressed]}>
+                  <DesignIcon name="plus" size={18} />
+                  <Text style={styles.createListLabel}>Create shopping list</Text>
                 </Pressable>
-              );
-            })}
-            {result.warnings.map((warning) => (
-              <Text key={warning} style={styles.warning}>{warning}</Text>
-            ))}
-            <Pressable
-              accessibilityRole="button"
-              disabled={selectedIngredients.length === 0}
-              onPress={useInShoppingList}
-              style={({ pressed }) => [
-                styles.button,
-                styles.useListButton,
-                (pressed || selectedIngredients.length === 0) && styles.buttonPressed,
-              ]}
-            >
-              <Text style={styles.buttonText}>Use in shopping list</Text>
-            </Pressable>
+              </View>
+            ) : null}
+          </ScrollView>
+        )}
+
+        {mode === 'chat' ? (
+          <View style={styles.composerWrap}>
+            <View style={styles.composer}>
+              <DesignIcon name="carter" size={22} />
+              <TextInput
+                accessibilityLabel="Message Carter"
+                editable={!isSubmitting}
+                onChangeText={(value) => {
+                  setDraft(value);
+                  setErrorMessage(null);
+                }}
+                onSubmitEditing={() => void sendMessage()}
+                placeholder="Ask Carter anything..."
+                placeholderTextColor="#8A8789"
+                returnKeyType="send"
+                style={styles.input}
+                value={draft}
+              />
+              <Pressable accessibilityLabel="Send message" disabled={!draft.trim() || isSubmitting} hitSlop={8} onPress={() => void sendMessage()} style={styles.sendButton}>
+                <DesignIcon name="send" size={24} />
+              </Pressable>
+            </View>
           </View>
         ) : null}
-      </ScrollView>
-      <AppBottomNav active="carter" navigation={navigation} />
+      </KeyboardAvoidingView>
+          <AppBottomNav active="carter" navigation={navigation} />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: {
-    backgroundColor: '#FFFFFF',
-    flex: 1,
-  },
-  scrollView: {
-    flex: 1,
-  },
-  content: {
-    flexGrow: 1,
-    padding: 24,
-    paddingBottom: 72,
-  },
-  title: {
-    color: '#1F2933',
-    fontSize: 24,
-    fontWeight: '600',
-  },
-  description: {
-    color: '#526E5A',
-    fontSize: 16,
-    lineHeight: 23,
-    marginTop: 8,
-  },
-  modeRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginTop: 20,
-  },
-  modeButton: {
-    borderColor: '#B7C8B7',
-    borderRadius: 6,
-    borderWidth: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  modeButtonSelected: {
-    backgroundColor: '#DFF0DD',
-    borderColor: '#167438',
-  },
-  modeButtonText: { color: '#526E5A', fontSize: 13, fontWeight: '600' },
-  modeButtonTextSelected: { color: '#167438' },
-  input: {
-    borderColor: '#B7C8B7',
-    borderRadius: 8,
-    borderWidth: 1,
-    color: '#1F2933',
-    fontSize: 16,
-    marginTop: 24,
-    minHeight: 144,
-    padding: 12,
-  },
-  button: {
-    alignItems: 'center',
-    backgroundColor: '#167438',
-    borderRadius: 8,
-    justifyContent: 'center',
-    marginTop: 16,
-    minHeight: 48,
-    paddingHorizontal: 16,
-  },
-  buttonContent: { alignItems: 'center', flexDirection: 'row', gap: 10 },
-  buttonPressed: {
-    opacity: 0.65,
-  },
-  buttonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  errorMessage: {
-    color: '#B42318',
-    fontSize: 14,
-    marginTop: 16,
-  },
-  resultSection: {
-    borderTopColor: '#DCE5DC',
-    borderTopWidth: 1,
-    marginTop: 28,
-    paddingTop: 20,
-  },
-  chatTranscript: {
-    gap: 12,
-    marginTop: 24,
-  },
-  chatReply: {
-    backgroundColor: '#F2F9F0',
-    borderColor: '#DCE5DC',
-    borderRadius: 8,
-    borderWidth: 1,
-    marginTop: 24,
-    padding: 16,
-  },
-  userMessage: {
-    alignSelf: 'flex-end',
-    backgroundColor: '#E7EDF6',
-    borderRadius: 8,
-    maxWidth: '88%',
-    padding: 16,
-  },
-  chatMessageLabel: { color: '#526E5A', fontSize: 13, fontWeight: '700' },
-  chatReplyText: { color: '#1F2933', fontSize: 15, lineHeight: 22, marginTop: 8 },
-  resultTitle: { color: '#1B2A1E', fontSize: 20, fontWeight: '700' },
-  resultDescription: { color: '#526E5A', fontSize: 14, marginTop: 5 },
-  ingredientRow: {
-    alignItems: 'center',
-    borderColor: '#DCE5DC',
-    borderRadius: 8,
-    borderWidth: 1,
-    flexDirection: 'row',
-    marginTop: 12,
-    padding: 12,
-  },
-  ingredientRowSelected: { backgroundColor: '#F2F9F0', borderColor: '#77A67F' },
-  checkbox: {
-    alignItems: 'center',
-    borderColor: '#7F8D81',
-    borderRadius: 4,
-    borderWidth: 1,
-    height: 22,
-    justifyContent: 'center',
-    marginRight: 12,
-    width: 22,
-  },
-  checkboxSelected: { backgroundColor: '#167438', borderColor: '#167438' },
-  checkmark: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
-  ingredientCopy: { flex: 1 },
-  ingredientName: { color: '#1B2A1E', fontSize: 16, fontWeight: '700' },
-  ingredientDetail: { color: '#526E5A', fontSize: 13, marginTop: 2 },
-  ingredientTags: { color: '#167438', fontSize: 12, marginTop: 4 },
-  warning: { color: '#9A5A00', fontSize: 13, lineHeight: 19, marginTop: 10 },
-  useListButton: { marginTop: 20 },
+  screen: { backgroundColor: '#FFFEFE', flex: 1 },
+  keyboardView: { flex: 1 },
+  header: { alignItems: 'center', borderBottomColor: colors.border, borderBottomWidth: StyleSheet.hairlineWidth, flexDirection: 'row', minHeight: 82, paddingHorizontal: spacing.lg },
+  backButton: { marginLeft: -4 },
+  headerCopy: { flex: 1, marginLeft: spacing.sm },
+  title: { color: colors.text, fontFamily: fontFamily.bold, fontSize: 20, lineHeight: 27 },
+  subtitle: { color: colors.textMuted, fontFamily: fontFamily.bold, fontSize: 13, lineHeight: 18 },
+  profileButton: { alignItems: 'center', backgroundColor: '#E8F5BC', borderColor: colors.surface, borderRadius: 22, borderWidth: 2, height: 40, justifyContent: 'center', width: 44 },
+  modeTabs: { backgroundColor: colors.backgroundMuted, borderRadius: 9, flexDirection: 'row', marginHorizontal: spacing.lg, marginTop: 12, padding: 4 },
+  modeTab: { alignItems: 'center', borderRadius: 7, flex: 1, justifyContent: 'center', minHeight: 40, paddingHorizontal: 6 },
+  modeTabActive: { backgroundColor: colors.primary, shadowColor: '#000000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.12, shadowRadius: 2 },
+  modeTabLabel: { color: colors.textMuted, fontFamily: fontFamily.bold, fontSize: 12 },
+  modeTabLabelActive: { color: colors.textInverse },
+  messages: { flexGrow: 1, paddingBottom: spacing.lg, paddingHorizontal: spacing.lg, paddingTop: 28 },
+  carterRow: { alignItems: 'flex-start', flexDirection: 'row', marginBottom: 22 },
+  userRow: { alignItems: 'flex-end', marginBottom: 22 },
+  carterAvatar: { alignItems: 'center', height: 62, justifyContent: 'center', marginRight: 10, width: 62 },
+  carterBubble: { backgroundColor: '#F5F5F5', borderRadius: 12, maxWidth: '78%', minHeight: 64, paddingHorizontal: 16, paddingVertical: 12 },
+  userBubble: { backgroundColor: '#BDD5C4', borderRadius: 12, maxWidth: '78%', paddingHorizontal: 16, paddingVertical: 12 },
+  loadingBubble: { alignItems: 'center', backgroundColor: '#F5F5F5', borderRadius: 12, height: 50, justifyContent: 'center', width: 58 },
+  messageText: { color: '#161616', fontFamily: fontFamily.regular, fontSize: 16, lineHeight: 25 },
+  error: { color: colors.danger, fontFamily: fontFamily.regular, fontSize: 13, marginBottom: spacing.sm, textAlign: 'center' },
+  composerWrap: { paddingHorizontal: spacing.lg, paddingVertical: 12 },
+  composer: { alignItems: 'center', backgroundColor: '#FFFAFB', borderRadius: 28, flexDirection: 'row', minHeight: 52, paddingHorizontal: 14, shadowColor: '#000000', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.2, shadowRadius: 3 },
+  input: { color: '#161616', flex: 1, fontFamily: fontFamily.regular, fontSize: 15, marginHorizontal: 10, minHeight: 44, paddingVertical: 8 },
+  sendButton: { alignItems: 'center', height: 40, justifyContent: 'center', width: 36 },
+  recipeContent: { flexGrow: 1, padding: spacing.lg, paddingBottom: 28 },
+  recipeIntro: { alignItems: 'center', flexDirection: 'row', marginBottom: spacing.lg },
+  recipeMascot: { alignItems: 'center', backgroundColor: colors.primaryMuted, borderRadius: 38, height: 76, justifyContent: 'center', width: 76 },
+  recipeIntroCopy: { flex: 1, marginLeft: spacing.md },
+  recipeTitle: { color: colors.text, fontFamily: fontFamily.bold, fontSize: 18, lineHeight: 24 },
+  recipeDescription: { color: colors.textMuted, fontFamily: fontFamily.regular, fontSize: 13, lineHeight: 19, marginTop: 3 },
+  recipeInputCard: { backgroundColor: colors.surfaceSubtle, borderColor: colors.border, borderRadius: 8, borderWidth: 1, padding: spacing.md },
+  inputLabel: { color: colors.text, fontFamily: fontFamily.bold, fontSize: 13, marginBottom: spacing.sm },
+  recipeInput: { backgroundColor: colors.surface, borderColor: colors.borderStrong, borderRadius: 8, borderWidth: 1, color: colors.text, fontFamily: fontFamily.regular, fontSize: 14, minHeight: 48, paddingHorizontal: 12, paddingVertical: 10 },
+  recipeIdeaInput: { minHeight: 88, textAlignVertical: 'top' },
+  recipeAction: { alignItems: 'center', backgroundColor: colors.primary, borderRadius: 8, flexDirection: 'row', justifyContent: 'center', marginTop: spacing.md, minHeight: 46, paddingHorizontal: spacing.md },
+  recipeActionLabel: { color: colors.textInverse, fontFamily: fontFamily.bold, fontSize: 14, marginLeft: spacing.sm },
+  actionDisabled: { opacity: 0.45 },
+  actionPressed: { opacity: 0.72 },
+  resultCard: { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: 8, borderWidth: 1, marginTop: spacing.lg, padding: spacing.lg },
+  resultEyebrow: { color: colors.primary, fontFamily: fontFamily.bold, fontSize: 10 },
+  resultTitle: { color: colors.text, fontFamily: fontFamily.bold, fontSize: 18, lineHeight: 24, marginBottom: spacing.md, marginTop: 3 },
+  ingredientRow: { alignItems: 'center', borderBottomColor: colors.border, borderBottomWidth: StyleSheet.hairlineWidth, flexDirection: 'row', minHeight: 40 },
+  ingredientDot: { backgroundColor: colors.primary, borderRadius: 3, height: 6, marginRight: 10, width: 6 },
+  ingredientName: { color: colors.text, flex: 1, fontFamily: fontFamily.regular, fontSize: 14 },
+  ingredientQuantity: { color: colors.textMuted, fontFamily: fontFamily.regular, fontSize: 12, marginLeft: spacing.sm },
+  warningText: { color: colors.warning, fontFamily: fontFamily.regular, fontSize: 12, lineHeight: 18, marginTop: spacing.sm },
+  createListButton: { alignItems: 'center', borderColor: colors.primary, borderRadius: 8, borderWidth: 1, flexDirection: 'row', justifyContent: 'center', marginTop: spacing.lg, minHeight: 44 },
+  createListLabel: { color: colors.primary, fontFamily: fontFamily.bold, fontSize: 14, marginLeft: spacing.sm },
 });
