@@ -132,8 +132,14 @@ def test_greedy_top_five_against_proven_exact_ranking(item_count: int) -> None:
     exact_seconds = perf_counter() - exact_started
 
     assert exact.status == RouteOptimizationStatus.OPTIMAL
-    assert exact.proven_prefix_count == 20
+    assert exact.proven_prefix_count == len(exact.candidates)
+    assert len({frozenset(candidate.stores) for candidate in exact.candidates}) == len(
+        exact.candidates
+    )
     assert len(greedy.candidates) >= 5
+    assert len({frozenset(candidate.stores) for candidate in greedy.candidates}) == len(
+        greedy.candidates
+    )
     exact_ranks = {
         _candidate_identity(candidate): rank
         for rank, candidate in enumerate(exact.candidates, start=1)

@@ -10,7 +10,6 @@ import { MapScreen } from '../screens/MapScreen';
 import { NearbyDealsScreen } from '../screens/NearbyDealsScreen';
 import { NearbyStoresScreen } from '../screens/NearbyStoresScreen';
 import { NewShoppingListScreen } from '../screens/NewShoppingListScreen';
-import { RoutePreviewScreen } from '../screens/RoutePreviewScreen';
 import { RoutesScreen } from '../screens/RoutesScreen';
 import { SavedListsScreen } from '../screens/SavedListsScreen';
 import type { RootStackParamList } from './types';
@@ -52,11 +51,6 @@ export function RootNavigator() {
           headerTitle: '',
           headerTransparent: true,
         }}
-      />
-      <Stack.Screen
-        component={RoutePreviewScreen}
-        name="RouteResults"
-        options={{ headerShown: false }}
       />
     </Stack.Navigator>
   );

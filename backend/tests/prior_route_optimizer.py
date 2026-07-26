@@ -54,13 +54,10 @@ def _score_units_to_decimal(units: int) -> Decimal:
 class ExactSolverSettings:
     timeout_seconds: float = 120.0
     random_seed: int = 0
-    max_candidates_per_store_sequence: int = 3
 
     def __post_init__(self) -> None:
         if not isfinite(self.timeout_seconds) or self.timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be positive and finite")
-        if self.max_candidates_per_store_sequence <= 0:
-            raise ValueError("max_candidates_per_store_sequence must be positive")
 
 
 @dataclass(slots=True)
@@ -77,6 +74,7 @@ class _Problem:
     price_cents: cp_model.LinearExpr
     distance_milli_miles: cp_model.LinearExpr
     time_centi_minutes: cp_model.LinearExpr
+    modifier_penalty_units: cp_model.LinearExpr
     score_units: cp_model.LinearExpr
     sequence_code: cp_model.LinearExpr
     assignment_ranks: dict[int, cp_model.IntVar]
@@ -87,6 +85,7 @@ class _Problem:
 class _SolvedCandidate:
     candidate: RouteCandidate
     sequence_code: int
+    store_ids: frozenset[int]
     literal_values: tuple[bool, ...]
 
 
@@ -97,6 +96,19 @@ def _edge_price_cents(catalog: OptimizationCatalog) -> dict[tuple[int, int], int
             / _decimal(product.price_quantity)
             * _decimal(catalog.requested_items[item_index].quantity),
             PRICE_QUANTUM,
+        )
+        for product in catalog.products
+        for item_index in product.matching_item_indices
+    }
+
+
+def _edge_modifier_misses(
+    catalog: OptimizationCatalog,
+) -> dict[tuple[int, int], int]:
+    return {
+        (item_index, product.id): len(
+            set(catalog.requested_items[item_index].modifiers)
+            - set(product.modifiers)
         )
         for product in catalog.products
         for item_index in product.matching_item_indices
@@ -279,6 +291,7 @@ def _build_problem(
     )
 
     edge_price_cents = _edge_price_cents(catalog)
+    edge_modifier_misses = _edge_modifier_misses(catalog)
     price_cents = cp_model.LinearExpr.sum(
         [
             edge_price_cents[(item_index, product_id)] * variable
@@ -301,11 +314,20 @@ def _build_problem(
     )
     match_count = cp_model.LinearExpr.sum(list(matched.values()))
     visited_count = cp_model.LinearExpr.sum(list(visited_stores.values()))
+    modifier_penalty_units = cp_model.LinearExpr.sum(
+        [
+            edge_modifier_misses[(item_index, product_id)]
+            * policy.modifier_miss_score_units
+            * variable
+            for (item_index, product_id), variable in assignments.items()
+        ]
+    )
     score_units = (
         price_cents * PRICE_SCORE_UNITS_PER_CENT
         + distance_milli_miles * policy.distance_units_per_milli_mile
         + time_centi_minutes * policy.time_units_per_centi_minute
         + visited_count * policy.store_score_units
+        + modifier_penalty_units
     )
 
     unmatched_rank = len(product_ranks) + 1
@@ -344,6 +366,7 @@ def _build_problem(
         price_cents=price_cents,
         distance_milli_miles=distance_milli_miles,
         time_centi_minutes=time_centi_minutes,
+        modifier_penalty_units=modifier_penalty_units,
         score_units=score_units,
         sequence_code=sequence_code,
         assignment_ranks=assignment_ranks,
@@ -450,11 +473,13 @@ def _extract_candidate(
         time_centi_minutes * problem.policy.time_units_per_centi_minute
     )
     store_score_units = len(stores) * problem.policy.store_score_units
+    modifier_penalty_units = solver.value(problem.modifier_penalty_units)
     components = RouteScoreComponents(
         productPrice=float(_score_units_to_decimal(product_price_units)),
         distanceCost=float(_score_units_to_decimal(distance_score_units)),
         timeCost=float(_score_units_to_decimal(time_score_units)),
         storeCost=float(_score_units_to_decimal(store_score_units)),
+        modifierPenalty=float(_score_units_to_decimal(modifier_penalty_units)),
     )
     matched_count = len(assignments)
     candidate = RouteCandidate(
@@ -476,6 +501,7 @@ def _extract_candidate(
     return _SolvedCandidate(
         candidate=candidate,
         sequence_code=solver.value(problem.sequence_code),
+        store_ids=frozenset(stores),
         literal_values=tuple(
             bool(solver.value(literal)) for literal in problem.solution_literals
         ),
@@ -558,6 +584,13 @@ def _exclude_solution(problem: _Problem, solution: _SolvedCandidate) -> None:
     )
 
 
+def _exclude_store_set(problem: _Problem, store_ids: frozenset[int]) -> None:
+    problem.model.add_bool_or(
+        variable.Not() if store_id in store_ids else variable
+        for store_id, variable in problem.visited_stores.items()
+    )
+
+
 def optimize_routes_exact(
     catalog: OptimizationCatalog,
     travel: DirectedTravelMatrix,
@@ -576,7 +609,6 @@ def optimize_routes_exact(
     started_at = monotonic()
     deadline = started_at + effective_settings.timeout_seconds
     candidates: list[RouteCandidate] = []
-    sequence_counts: dict[int, int] = {}
     proven_prefix_count = 0
     timed_out = False
     exhausted = False
@@ -596,10 +628,7 @@ def optimize_routes_exact(
         if proven and proven_prefix_count == len(candidates) - 1:
             proven_prefix_count += 1
         _exclude_solution(problem, solution)
-        sequence_count = sequence_counts.get(solution.sequence_code, 0) + 1
-        sequence_counts[solution.sequence_code] = sequence_count
-        if sequence_count >= effective_settings.max_candidates_per_store_sequence:
-            problem.model.add(problem.sequence_code != solution.sequence_code)
+        _exclude_store_set(problem, solution.store_ids)
         if iteration_timed_out:
             timed_out = True
             break

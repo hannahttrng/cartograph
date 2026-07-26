@@ -1,115 +1,127 @@
-import { useMemo, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { useMemo } from 'react';
+import { StyleSheet, View } from 'react-native';
 import type { WebViewMessageEvent } from 'react-native-webview';
 import { WebView } from 'react-native-webview';
 
 import {
+  ARCGIS_API_KEY,
+  ARCGIS_GEOCODING_SERVICE_URL,
+  ARCGIS_MAP_DIAGNOSTICS,
+  ARCGIS_MAP_HOST,
+  ARCGIS_MAP_SOURCE,
   ARCGIS_PORTAL_URL,
+  ARCGIS_ROUTE_SERVICE_URL,
   ARCGIS_WEB_MAP_ITEM_ID,
 } from '../../constants/config';
-import type { MapRouteData } from '../../types/maps';
+import type {
+  ArcGISMapDiagnostic,
+  MapRouteData,
+  MapRouteError,
+  MapRouteResult,
+} from '../../types/maps';
+import {
+  createArcGISMapHtml,
+  parseArcGISMapMessage,
+} from './arcgisMapBridge';
 
 interface ArcGISMapAdapterProps {
   mapData: MapRouteData;
-  onError: () => void;
-  onLoad: () => void;
-  onLoadStart: () => void;
+  onDiagnostic: (diagnostic: ArcGISMapDiagnostic) => void;
+  onMapError: (message: string) => void;
+  onMapLoadStart: () => void;
+  onMapReady: () => void;
+  onRouteError: (error: MapRouteError) => void;
+  onRouteSolved: (result: MapRouteResult) => void;
+  onRouteSolving: () => void;
 }
-
-const createEmbeddedMapHtml = (): string => `<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-    <style>
-      html, body, arcgis-embedded-map { height: 100%; width: 100%; margin: 0; }
-      body { overflow: hidden; background: #f4f7f4; }
-    </style>
-    <script>
-      const notify = (type) => window.ReactNativeWebView?.postMessage(JSON.stringify({ type }));
-      window.addEventListener('error', () => notify('error'));
-      const loadTimeout = window.setTimeout(() => notify('timeout'), 20000);
-    </script>
-    <script
-      type="module"
-      src="https://js.arcgis.com/5.1/embeddable-components/"
-      onerror="notify('error')"
-    ></script>
-  </head>
-  <body>
-    <arcgis-embedded-map
-      id="cartograph-map"
-      item-id="${ARCGIS_WEB_MAP_ITEM_ID}"
-      theme="light"
-      time-zone-label-enabled
-      center="-117.1816653218417,34.057149627528155"
-      scale="36111.909643"
-      portal-url="${ARCGIS_PORTAL_URL}"
-    ></arcgis-embedded-map>
-    <script type="module">
-      customElements.whenDefined('arcgis-embedded-map').then(() => {
-        window.clearTimeout(loadTimeout);
-        notify('ready');
-      });
-    </script>
-  </body>
-</html>`;
 
 export function ArcGISMapAdapter({
   mapData,
-  onError,
-  onLoad,
-  onLoadStart,
+  onDiagnostic,
+  onMapError,
+  onMapLoadStart,
+  onMapReady,
+  onRouteError,
+  onRouteSolved,
+  onRouteSolving,
 }: ArcGISMapAdapterProps) {
-  const [isLoading, setIsLoading] = useState(true);
-  const html = useMemo(createEmbeddedMapHtml, []);
+  const html = useMemo(
+    () => createArcGISMapHtml({
+      apiKey: ARCGIS_API_KEY,
+      diagnosticsEnabled: ARCGIS_MAP_DIAGNOSTICS,
+      geocodingServiceUrl: ARCGIS_GEOCODING_SERVICE_URL,
+      mapHost: ARCGIS_MAP_HOST,
+      mapData,
+      mapSource: ARCGIS_MAP_SOURCE,
+      portalUrl: ARCGIS_PORTAL_URL,
+      routeServiceUrl: ARCGIS_ROUTE_SERVICE_URL,
+      webMapItemId: ARCGIS_WEB_MAP_ITEM_ID,
+    }),
+    [mapData],
+  );
 
   const handleMessage = (event: WebViewMessageEvent) => {
-    try {
-      const message: unknown = JSON.parse(event.nativeEvent.data);
-      if (!message || typeof message !== 'object' || !('type' in message)) {
-        return;
-      }
-
-      if (message.type === 'ready') {
-        setIsLoading(false);
-        onLoad();
-      } else if (message.type === 'error' || message.type === 'timeout') {
-        onError();
-      }
-    } catch {
-      onError();
+    const message = parseArcGISMapMessage(event.nativeEvent.data);
+    if (!message) {
+      onMapError('The ArcGIS map returned an invalid response.');
+      return;
     }
+
+    switch (message.type) {
+      case 'mapReady':
+        onMapReady();
+        break;
+      case 'routeSolving':
+        onRouteSolving();
+        break;
+      case 'routeSolved':
+        onRouteSolved(message.result);
+        break;
+      case 'routeError':
+        onRouteError(message.error);
+        break;
+      case 'diagnostic':
+        onDiagnostic(message.diagnostic);
+        break;
+      case 'mapError':
+        onMapError(message.message);
+        break;
+      case 'timeout':
+        if (message.stage === 'map') {
+          onMapError('The ArcGIS map took too long to load.');
+        } else {
+          onRouteError({
+            code: 'TIMEOUT',
+            message: 'ArcGIS took too long to calculate this route.',
+          });
+        }
+        break;
+    }
+  };
+
+  const handleMapProcessError = () => {
+    onMapError('The interactive map process stopped unexpectedly.');
   };
 
   return (
     <View
-      accessibilityLabel={`Interactive ArcGIS map with ${mapData.stores.length} route stores`}
+      accessibilityLabel={`Interactive ArcGIS map with ${mapData.stops.length} route stores`}
       style={styles.container}
     >
       <WebView
         javaScriptEnabled
-        onContentProcessDidTerminate={onError}
-        onError={onError}
-        onHttpError={onError}
-        onLoadStart={() => {
-          setIsLoading(true);
-          onLoadStart();
-        }}
+        onContentProcessDidTerminate={handleMapProcessError}
+        onError={handleMapProcessError}
+        onHttpError={handleMapProcessError}
+        onLoadStart={onMapLoadStart}
         onMessage={handleMessage}
-        onRenderProcessGone={onError}
+        onRenderProcessGone={handleMapProcessError}
         originWhitelist={['https://*']}
         scrollEnabled={false}
         setSupportMultipleWindows={false}
         source={{ html, baseUrl: ARCGIS_PORTAL_URL }}
         style={styles.map}
       />
-      {isLoading ? (
-        <View pointerEvents="none" style={styles.loadingOverlay}>
-          <ActivityIndicator color="#243B53" />
-          <Text style={styles.loadingText}>Loading interactive map...</Text>
-        </View>
-      ) : null}
     </View>
   );
 }
@@ -122,16 +134,5 @@ const styles = StyleSheet.create({
   map: {
     backgroundColor: '#F4F7F4',
     flex: 1,
-  },
-  loadingOverlay: {
-    ...StyleSheet.absoluteFill,
-    alignItems: 'center',
-    backgroundColor: '#F4F7F4',
-    justifyContent: 'center',
-  },
-  loadingText: {
-    color: '#52606D',
-    fontSize: 14,
-    marginTop: 10,
   },
 });

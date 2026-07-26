@@ -4,20 +4,31 @@ import sqlite3
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
+from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 from typing import Protocol
 
+from backend.demo_travel_matrix import DEMO_STORE_COORDINATES
 from backend.types import (
     Price,
     Product,
+    RouteCandidateResult,
+    RouteCandidatesResponse,
+    RouteCalculationResponse,
+    RouteCalculationStatus,
     RouteItemSelection,
+    RouteOptimizationErrorCode,
+    RouteOptimizationResponse,
+    RouteProductSummary,
+    RouteScoreComponents,
+    RouteStoreSummary,
     ShoppingList,
+    ShoppingListActiveUpdate,
     ShoppingListCreate,
     ShoppingListItem,
     ShoppingListItemInput,
     ShoppingListNameUpdate,
     ShoppingListReplace,
-    ShoppingListStatus,
     Store,
     Tag,
 )
@@ -45,7 +56,13 @@ SCHEMA_STATEMENTS = (
     CREATE TABLE IF NOT EXISTS stores (
         id INTEGER PRIMARY KEY,
         name TEXT NOT NULL CHECK (length(trim(name)) > 0),
-        address TEXT NOT NULL CHECK (length(trim(address)) > 0)
+        address TEXT NOT NULL CHECK (length(trim(address)) > 0),
+        latitude REAL CHECK (latitude IS NULL OR latitude BETWEEN -90 AND 90),
+        longitude REAL CHECK (longitude IS NULL OR longitude BETWEEN -180 AND 180),
+        CHECK (
+            (latitude IS NULL AND longitude IS NULL)
+            OR (latitude IS NOT NULL AND longitude IS NOT NULL)
+        )
     )
     """,
     """
@@ -118,11 +135,7 @@ SCHEMA_STATEMENTS = (
         name TEXT NOT NULL CHECK (
             length(trim(name)) > 0 AND name = trim(name)
         ),
-        status TEXT NOT NULL DEFAULT 'PENDING' CHECK (
-            status IN ('PENDING', 'COMPUTING', 'READY', 'FAILED')
-        ),
-        active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
-        revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0)
+        active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1))
     )
     """,
     """
@@ -167,9 +180,16 @@ SCHEMA_STATEMENTS = (
     """
     CREATE TABLE IF NOT EXISTS routes (
         id INTEGER PRIMARY KEY,
+        position INTEGER NOT NULL UNIQUE CHECK (position >= 0),
         distance REAL NOT NULL CHECK (distance >= 0),
         time REAL NOT NULL CHECK (time >= 0),
         score REAL NOT NULL,
+        product_price REAL NOT NULL CHECK (product_price >= 0),
+        matched_item_count INTEGER NOT NULL CHECK (matched_item_count > 0),
+        distance_cost REAL NOT NULL CHECK (distance_cost >= 0),
+        time_cost REAL NOT NULL CHECK (time_cost >= 0),
+        store_cost REAL NOT NULL CHECK (store_cost >= 0),
+        modifier_penalty REAL NOT NULL DEFAULT 0 CHECK (modifier_penalty >= 0),
         error_code TEXT CHECK (
             error_code IS NULL OR error_code IN ('PARTIAL_ITEM_MATCH')
         )
@@ -205,6 +225,15 @@ SCHEMA_STATEMENTS = (
             AND requested_quantity <= 1.7976931348623157e308
         ),
         product_id INTEGER,
+        selection_price REAL,
+        CHECK (
+            (product_id IS NULL AND selection_price IS NULL)
+            OR (
+                product_id IS NOT NULL
+                AND selection_price IS NOT NULL
+                AND selection_price >= 0
+            )
+        ),
         PRIMARY KEY (route_id, position),
         UNIQUE (route_id, requested_tag),
         UNIQUE (route_id, product_id),
@@ -228,14 +257,47 @@ SCHEMA_STATEMENTS = (
     )
     """,
     """
-    CREATE TABLE IF NOT EXISTS shopping_list_routes (
-        shopping_list_id INTEGER NOT NULL,
-        route_id INTEGER PRIMARY KEY,
-        position INTEGER NOT NULL CHECK (position >= 0),
-        UNIQUE (shopping_list_id, position),
-        FOREIGN KEY (shopping_list_id)
-            REFERENCES shopping_lists(id) ON DELETE CASCADE,
-        FOREIGN KEY (route_id) REFERENCES routes(id) ON DELETE CASCADE
+    CREATE TABLE IF NOT EXISTS route_item_product_modifiers (
+        route_id INTEGER NOT NULL,
+        selection_position INTEGER NOT NULL CHECK (selection_position >= 0),
+        modifier TEXT NOT NULL CHECK (
+            length(trim(modifier)) > 0
+            AND modifier = trim(modifier)
+            AND modifier = lower(modifier)
+        ),
+        PRIMARY KEY (route_id, selection_position, modifier),
+        FOREIGN KEY (route_id, selection_position)
+            REFERENCES route_item_selections(route_id, position)
+            ON DELETE CASCADE
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS route_calculation_state (
+        singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+        generation INTEGER NOT NULL DEFAULT 0 CHECK (generation >= 0),
+        status TEXT NOT NULL DEFAULT 'IDLE' CHECK (
+            status IN ('IDLE', 'RUNNING', 'SUCCEEDED', 'FAILED')
+        ),
+        active_list_count INTEGER NOT NULL DEFAULT 0 CHECK (active_list_count >= 0),
+        item_count INTEGER NOT NULL DEFAULT 0 CHECK (item_count >= 0),
+        result_count INTEGER NOT NULL DEFAULT 0 CHECK (result_count >= 0),
+        optimizer_status TEXT CHECK (
+            optimizer_status IS NULL
+            OR optimizer_status IN ('OPTIMAL', 'HEURISTIC', 'FEASIBLE_TIMEOUT')
+        ),
+        started_at REAL CHECK (started_at IS NULL OR started_at >= 0),
+        completed_at REAL CHECK (completed_at IS NULL OR completed_at >= 0),
+        elapsed_seconds REAL CHECK (elapsed_seconds IS NULL OR elapsed_seconds >= 0),
+        timeout_seconds REAL CHECK (timeout_seconds IS NULL OR timeout_seconds > 0),
+        error_code TEXT CHECK (
+            error_code IS NULL OR error_code IN (
+                'NO_ELIGIBLE_PRODUCTS',
+                'MATRIX_UNAVAILABLE',
+                'UNIT_CONVERSION_FAILED',
+                'OPTIMIZATION_FAILED'
+            )
+        ),
+        detail TEXT CHECK (detail IS NULL OR length(trim(detail)) > 0)
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_products_store ON products(store_id)",
@@ -253,13 +315,25 @@ SCHEMA_STATEMENTS = (
     CREATE INDEX IF NOT EXISTS idx_shopping_list_items_tag
     ON shopping_list_items(tag)
     """,
-    """
-    CREATE INDEX IF NOT EXISTS idx_shopping_list_routes_owner
-    ON shopping_list_routes(shopping_list_id, position)
-    """,
 )
 
 TRIGGER_STATEMENTS = (
+    """
+    CREATE TRIGGER IF NOT EXISTS validate_store_coordinates_insert
+    BEFORE INSERT ON stores
+    WHEN (NEW.latitude IS NULL) != (NEW.longitude IS NULL)
+    BEGIN
+        SELECT RAISE(ABORT, 'store latitude and longitude must be provided together');
+    END
+    """,
+    """
+    CREATE TRIGGER IF NOT EXISTS validate_store_coordinates_update
+    BEFORE UPDATE OF latitude, longitude ON stores
+    WHEN (NEW.latitude IS NULL) != (NEW.longitude IS NULL)
+    BEGIN
+        SELECT RAISE(ABORT, 'store latitude and longitude must be provided together');
+    END
+    """,
     """
     CREATE TRIGGER IF NOT EXISTS validate_product_current_price_insert
     BEFORE INSERT ON products
@@ -366,51 +440,6 @@ TRIGGER_STATEMENTS = (
                 AND current_price IS NOT NULL
                 AND current_price_quantity IS NOT NULL
                 AND current_price_sale IS NOT NULL
-        );
-    END
-    """,
-    """
-    CREATE TRIGGER IF NOT EXISTS validate_shopping_list_route_insert
-    BEFORE INSERT ON shopping_list_routes
-    BEGIN
-        SELECT RAISE(ABORT, 'shopping list routes require READY status')
-        WHERE NOT EXISTS (
-            SELECT 1 FROM shopping_lists
-            WHERE id = NEW.shopping_list_id AND status = 'READY'
-        );
-    END
-    """,
-    """
-    CREATE TRIGGER IF NOT EXISTS validate_shopping_list_route_update
-    BEFORE UPDATE OF shopping_list_id ON shopping_list_routes
-    BEGIN
-        SELECT RAISE(ABORT, 'shopping list routes require READY status')
-        WHERE NOT EXISTS (
-            SELECT 1 FROM shopping_lists
-            WHERE id = NEW.shopping_list_id AND status = 'READY'
-        );
-    END
-    """,
-    """
-    CREATE TRIGGER IF NOT EXISTS protect_shopping_list_route_status
-    BEFORE UPDATE OF status ON shopping_lists
-    WHEN NEW.status != 'READY'
-    BEGIN
-        SELECT RAISE(ABORT, 'shopping list routes require READY status')
-        WHERE EXISTS (
-            SELECT 1 FROM shopping_list_routes
-            WHERE shopping_list_id = OLD.id
-        );
-    END
-    """,
-    """
-    CREATE TRIGGER IF NOT EXISTS delete_owned_shopping_list_routes
-    BEFORE DELETE ON shopping_lists
-    BEGIN
-        DELETE FROM routes
-        WHERE id IN (
-            SELECT route_id FROM shopping_list_routes
-            WHERE shopping_list_id = OLD.id
         );
     END
     """,
@@ -695,6 +724,47 @@ def _ensure_shopping_list_active_column(connection: sqlite3.Connection) -> None:
         )
 
 
+def _ensure_store_coordinate_columns(connection: sqlite3.Connection) -> None:
+    columns = {
+        row["name"] for row in connection.execute("PRAGMA table_info(stores)")
+    }
+    if "latitude" not in columns:
+        connection.execute(
+            """
+            ALTER TABLE stores ADD COLUMN latitude REAL
+            CHECK (latitude IS NULL OR latitude BETWEEN -90 AND 90)
+            """
+        )
+    if "longitude" not in columns:
+        connection.execute(
+            """
+            ALTER TABLE stores ADD COLUMN longitude REAL
+            CHECK (longitude IS NULL OR longitude BETWEEN -180 AND 180)
+            """
+        )
+    connection.executemany(
+        """
+        UPDATE stores SET latitude = ?, longitude = ?
+        WHERE address = ? AND latitude IS NULL AND longitude IS NULL
+        """,
+        (
+            (latitude, longitude, address)
+            for address, (latitude, longitude) in DEMO_STORE_COORDINATES.items()
+        ),
+    )
+    inconsistent = connection.execute(
+        """
+        SELECT id FROM stores
+        WHERE (latitude IS NULL) != (longitude IS NULL)
+        LIMIT 1
+        """
+    ).fetchone()
+    if inconsistent is not None:
+        raise sqlite3.IntegrityError(
+            "store latitude and longitude must be provided together"
+        )
+
+
 def _table_exists(connection: sqlite3.Connection, table_name: str) -> bool:
     return (
         connection.execute(
@@ -788,14 +858,21 @@ def _migrate_legacy_shopping_list_tags(connection: sqlite3.Connection) -> None:
     connection.execute("DROP TABLE shopping_list_tags")
 
 
-def _create_item_route_tables(connection: sqlite3.Connection) -> None:
+def _create_global_route_tables(connection: sqlite3.Connection) -> None:
     for statement in (
         """
         CREATE TABLE routes (
             id INTEGER PRIMARY KEY,
+            position INTEGER NOT NULL UNIQUE CHECK (position >= 0),
             distance REAL NOT NULL CHECK (distance >= 0),
             time REAL NOT NULL CHECK (time >= 0),
             score REAL NOT NULL,
+            product_price REAL NOT NULL CHECK (product_price >= 0),
+            matched_item_count INTEGER NOT NULL CHECK (matched_item_count > 0),
+            distance_cost REAL NOT NULL CHECK (distance_cost >= 0),
+            time_cost REAL NOT NULL CHECK (time_cost >= 0),
+            store_cost REAL NOT NULL CHECK (store_cost >= 0),
+            modifier_penalty REAL NOT NULL DEFAULT 0 CHECK (modifier_penalty >= 0),
             error_code TEXT CHECK (
                 error_code IS NULL OR error_code IN ('PARTIAL_ITEM_MATCH')
             )
@@ -831,6 +908,15 @@ def _create_item_route_tables(connection: sqlite3.Connection) -> None:
                 AND requested_quantity <= 1.7976931348623157e308
             ),
             product_id INTEGER,
+            selection_price REAL,
+            CHECK (
+                (product_id IS NULL AND selection_price IS NULL)
+                OR (
+                    product_id IS NOT NULL
+                    AND selection_price IS NOT NULL
+                    AND selection_price >= 0
+                )
+            ),
             PRIMARY KEY (route_id, position),
             UNIQUE (route_id, requested_tag),
             UNIQUE (route_id, product_id),
@@ -854,14 +940,18 @@ def _create_item_route_tables(connection: sqlite3.Connection) -> None:
         )
         """,
         """
-        CREATE TABLE shopping_list_routes (
-            shopping_list_id INTEGER NOT NULL,
-            route_id INTEGER PRIMARY KEY,
-            position INTEGER NOT NULL CHECK (position >= 0),
-            UNIQUE (shopping_list_id, position),
-            FOREIGN KEY (shopping_list_id)
-                REFERENCES shopping_lists(id) ON DELETE CASCADE,
-            FOREIGN KEY (route_id) REFERENCES routes(id) ON DELETE CASCADE
+        CREATE TABLE route_item_product_modifiers (
+            route_id INTEGER NOT NULL,
+            selection_position INTEGER NOT NULL CHECK (selection_position >= 0),
+            modifier TEXT NOT NULL CHECK (
+                length(trim(modifier)) > 0
+                AND modifier = trim(modifier)
+                AND modifier = lower(modifier)
+            ),
+            PRIMARY KEY (route_id, selection_position, modifier),
+            FOREIGN KEY (route_id, selection_position)
+                REFERENCES route_item_selections(route_id, position)
+                ON DELETE CASCADE
         )
         """,
         "CREATE INDEX idx_route_stores_store ON route_stores(store_id)",
@@ -869,44 +959,11 @@ def _create_item_route_tables(connection: sqlite3.Connection) -> None:
         CREATE INDEX idx_route_item_selections_product
         ON route_item_selections(product_id)
         """,
-        """
-        CREATE INDEX idx_shopping_list_routes_owner
-        ON shopping_list_routes(shopping_list_id, position)
-        """,
     ):
         connection.execute(statement)
 
 
-def _migrate_legacy_routes(connection: sqlite3.Connection) -> None:
-    routes_sql_row = connection.execute(
-        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'routes'"
-    ).fetchone()
-    legacy_route_contract = _table_exists(
-        connection, "route_tag_selections"
-    ) or (
-        routes_sql_row is not None
-        and "PARTIAL_TAG_MATCH" in (routes_sql_row["sql"] or "")
-    )
-    if not legacy_route_contract:
-        return
-
-    former_route_owners = [
-        row["shopping_list_id"]
-        for row in connection.execute(
-            "SELECT DISTINCT shopping_list_id FROM shopping_list_routes"
-        )
-    ]
-    connection.execute("DELETE FROM routes")
-    for shopping_list_id in former_route_owners:
-        connection.execute(
-            """
-            UPDATE shopping_lists
-            SET status = 'PENDING', revision = revision + 1
-            WHERE id = ?
-            """,
-            (shopping_list_id,),
-        )
-
+def _migrate_global_route_lifecycle(connection: sqlite3.Connection) -> None:
     for trigger_name in (
         "validate_route_product_insert",
         "validate_route_product_update",
@@ -918,16 +975,75 @@ def _migrate_legacy_routes(connection: sqlite3.Connection) -> None:
         "delete_owned_shopping_list_routes",
     ):
         connection.execute(f"DROP TRIGGER IF EXISTS {trigger_name}")
-    for table_name in (
-        "route_item_selection_modifiers",
-        "route_item_selections",
-        "route_tag_selections",
-        "route_stores",
-        "shopping_list_routes",
-        "routes",
-    ):
-        connection.execute(f"DROP TABLE IF EXISTS {table_name}")
-    _create_item_route_tables(connection)
+
+    connection.execute("DROP INDEX IF EXISTS idx_shopping_list_routes_owner")
+    connection.execute("DROP TABLE IF EXISTS shopping_list_routes")
+
+    route_columns = {
+        row["name"] for row in connection.execute("PRAGMA table_info(routes)")
+    }
+    required_route_columns = {
+        "id",
+        "position",
+        "distance",
+        "time",
+        "score",
+        "product_price",
+        "matched_item_count",
+        "distance_cost",
+        "time_cost",
+        "store_cost",
+        "modifier_penalty",
+        "error_code",
+    }
+    selection_columns = {
+        row["name"]
+        for row in connection.execute("PRAGMA table_info(route_item_selections)")
+    }
+    route_schema_rebuilt = (
+        route_columns != required_route_columns
+        or "selection_price" not in selection_columns
+    )
+    if route_schema_rebuilt:
+        for table_name in (
+            "route_item_product_modifiers",
+            "route_item_selection_modifiers",
+            "route_item_selections",
+            "route_tag_selections",
+            "route_stores",
+            "routes",
+        ):
+            connection.execute(f"DROP TABLE IF EXISTS {table_name}")
+        _create_global_route_tables(connection)
+
+        connection.execute(
+            """
+            UPDATE route_calculation_state
+            SET generation = 0, status = 'IDLE', active_list_count = 0,
+                item_count = 0, result_count = 0, optimizer_status = NULL,
+                started_at = NULL, completed_at = NULL,
+                elapsed_seconds = NULL, timeout_seconds = NULL,
+                error_code = NULL, detail = NULL
+            WHERE singleton = 1
+            """
+        )
+
+    shopping_list_columns = {
+        row["name"]
+        for row in connection.execute("PRAGMA table_info(shopping_lists)")
+    }
+    for obsolete_column in ("status", "revision"):
+        if obsolete_column in shopping_list_columns:
+            connection.execute(
+                f"ALTER TABLE shopping_lists DROP COLUMN {obsolete_column}"
+            )
+
+    connection.execute(
+        """
+        INSERT OR IGNORE INTO route_calculation_state (singleton)
+        VALUES (1)
+        """
+    )
 
 
 def initialize_database(database_path: str | Path) -> None:
@@ -946,9 +1062,10 @@ def initialize_database(database_path: str | Path) -> None:
             _ensure_current_price_columns(connection)
             _migrate_current_price_references(connection)
             _ensure_shopping_list_active_column(connection)
+            _ensure_store_coordinate_columns(connection)
             _migrate_legacy_product_tags(connection)
             _migrate_legacy_shopping_list_tags(connection)
-            _migrate_legacy_routes(connection)
+            _migrate_global_route_lifecycle(connection)
             for statement in TRIGGER_STATEMENTS:
                 connection.execute(statement)
     finally:
@@ -1299,31 +1416,18 @@ def get_shopping_list(
     connection: sqlite3.Connection, shopping_list_id: int
 ) -> ShoppingList | None:
     row = connection.execute(
-        "SELECT id, name, active, status FROM shopping_lists WHERE id = ?",
+        "SELECT id, name, active FROM shopping_lists WHERE id = ?",
         (shopping_list_id,),
     ).fetchone()
     if row is None:
         return None
 
     items = _load_shopping_list_items(connection, shopping_list_id)
-    routes = [
-        route_row["route_id"]
-        for route_row in connection.execute(
-            """
-            SELECT route_id FROM shopping_list_routes
-            WHERE shopping_list_id = ?
-            ORDER BY position
-            """,
-            (shopping_list_id,),
-        )
-    ]
     return ShoppingList(
         id=row["id"],
         name=row["name"],
         active=bool(row["active"]),
-        items=items,
-        routes=routes,
-        status=row["status"],
+        items=list(items),
     )
 
 
@@ -1357,52 +1461,47 @@ def create_shopping_list(
     return shopping_list
 
 
+@dataclass(frozen=True, slots=True)
+class ShoppingListMutation:
+    shopping_list: ShoppingList
+    route_calculation_required: bool
+
+
 def replace_shopping_list(
     connection: sqlite3.Connection,
     shopping_list_id: int,
     request: ShoppingListReplace,
-) -> ShoppingList | None:
+) -> ShoppingListMutation | None:
     with transaction(connection, immediate=True):
         items = _resolve_shopping_list_items(connection, request.items)
         row = connection.execute(
-            "SELECT revision FROM shopping_lists WHERE id = ?",
+            "SELECT active FROM shopping_lists WHERE id = ?",
             (shopping_list_id,),
         ).fetchone()
         if row is None:
             return None
 
         existing_items = _load_shopping_list_items(connection, shopping_list_id)
-        if existing_items == items:
-            connection.execute(
-                "UPDATE shopping_lists SET name = ?, active = ? WHERE id = ?",
-                (request.name, request.active, shopping_list_id),
-            )
-        else:
-            connection.execute(
-                """
-                DELETE FROM routes
-                WHERE id IN (
-                    SELECT route_id FROM shopping_list_routes
-                    WHERE shopping_list_id = ?
-                )
-                """,
-                (shopping_list_id,),
-            )
-            connection.execute(
-                """
-                UPDATE shopping_lists
-                SET name = ?, active = ?, status = 'PENDING', revision = revision + 1
-                WHERE id = ?
-                """,
-                (request.name, request.active, shopping_list_id),
-            )
+        items_changed = existing_items != items
+        active_changed = bool(row["active"]) != request.active
+        connection.execute(
+            "UPDATE shopping_lists SET name = ?, active = ? WHERE id = ?",
+            (request.name, request.active, shopping_list_id),
+        )
+        if items_changed:
             connection.execute(
                 "DELETE FROM shopping_list_items WHERE shopping_list_id = ?",
                 (shopping_list_id,),
             )
             _insert_shopping_list_items(connection, shopping_list_id, items)
 
-    return get_shopping_list(connection, shopping_list_id)
+    shopping_list = get_shopping_list(connection, shopping_list_id)
+    if shopping_list is None:
+        raise RuntimeError("updated shopping list could not be loaded")
+    return ShoppingListMutation(
+        shopping_list=shopping_list,
+        route_calculation_required=active_changed or (items_changed and request.active),
+    )
 
 
 def update_shopping_list_name(
@@ -1420,127 +1519,458 @@ def update_shopping_list_name(
     return get_shopping_list(connection, shopping_list_id)
 
 
+def update_shopping_list_active(
+    connection: sqlite3.Connection,
+    shopping_list_id: int,
+    request: ShoppingListActiveUpdate,
+) -> ShoppingListMutation | None:
+    with transaction(connection, immediate=True):
+        row = connection.execute(
+            "SELECT active FROM shopping_lists WHERE id = ?",
+            (shopping_list_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        active_changed = bool(row["active"]) != request.active
+        if active_changed:
+            connection.execute(
+                "UPDATE shopping_lists SET active = ? WHERE id = ?",
+                (request.active, shopping_list_id),
+            )
+
+    shopping_list = get_shopping_list(connection, shopping_list_id)
+    if shopping_list is None:
+        raise RuntimeError("updated shopping list could not be loaded")
+    return ShoppingListMutation(
+        shopping_list=shopping_list,
+        route_calculation_required=active_changed,
+    )
+
+
 def delete_shopping_list(
     connection: sqlite3.Connection, shopping_list_id: int
-) -> bool:
-    with transaction(connection):
+) -> ShoppingList | None:
+    with transaction(connection, immediate=True):
+        deleted = get_shopping_list(connection, shopping_list_id)
+        if deleted is None:
+            return None
         cursor = connection.execute(
             "DELETE FROM shopping_lists WHERE id = ?",
             (shopping_list_id,),
         )
-    return cursor.rowcount > 0
+        if cursor.rowcount == 0:
+            raise RuntimeError("shopping list disappeared during deletion")
+    return deleted
 
 
 @dataclass(frozen=True, slots=True)
-class ShoppingListComputation:
-    id: int
-    revision: int
+class ActiveShoppingListSnapshot:
+    active_list_count: int
     items: tuple[ShoppingListItem, ...]
+    tag_defaults: tuple[Tag, ...]
 
 
-def claim_pending_shopping_list(
+def load_active_shopping_list_snapshot(
     connection: sqlite3.Connection,
-) -> ShoppingListComputation | None:
+) -> ActiveShoppingListSnapshot:
     with transaction(connection):
-        row = connection.execute(
-            """
-            UPDATE shopping_lists
-            SET status = 'COMPUTING'
-            WHERE id = (
-                SELECT id FROM shopping_lists
-                WHERE status = 'PENDING'
-                ORDER BY id
-                LIMIT 1
+        active_ids = [
+            row["id"]
+            for row in connection.execute(
+                "SELECT id FROM shopping_lists WHERE active = 1 ORDER BY id"
             )
-            RETURNING id, revision
-            """
-        ).fetchone()
-        if row is None:
-            return None
-        items = _load_shopping_list_items(connection, row["id"])
-    return ShoppingListComputation(
-        id=row["id"], revision=row["revision"], items=items
+        ]
+        items = tuple(
+            item
+            for shopping_list_id in active_ids
+            for item in _load_shopping_list_items(connection, shopping_list_id)
+        )
+        tags = tuple(list_tags(connection))
+    return ActiveShoppingListSnapshot(
+        active_list_count=len(active_ids),
+        items=items,
+        tag_defaults=tags,
     )
 
 
-def publish_shopping_list_routes(
-    connection: sqlite3.Connection,
-    shopping_list_id: int,
-    revision: int,
-    route_ids: Sequence[int],
-) -> bool:
-    ranked_route_ids = tuple(route_ids)
-    if any(route_id <= 0 for route_id in ranked_route_ids):
-        raise ValueError("route IDs must be positive")
-    if len(ranked_route_ids) != len(set(ranked_route_ids)):
-        raise ValueError("route IDs must not contain duplicates")
+def _route_calculation_from_row(row: sqlite3.Row) -> RouteCalculationResponse:
+    return RouteCalculationResponse(
+        generation=row["generation"],
+        status=row["status"],
+        activeListCount=row["active_list_count"],
+        itemCount=row["item_count"],
+        resultCount=row["result_count"],
+        optimizerStatus=row["optimizer_status"],
+        startedAt=row["started_at"],
+        completedAt=row["completed_at"],
+        elapsedSeconds=row["elapsed_seconds"],
+        timeoutSeconds=row["timeout_seconds"],
+        errorCode=row["error_code"],
+        detail=row["detail"],
+    )
 
+
+def get_route_calculation(
+    connection: sqlite3.Connection,
+) -> RouteCalculationResponse:
+    row = connection.execute(
+        "SELECT * FROM route_calculation_state WHERE singleton = 1"
+    ).fetchone()
+    if row is None:
+        raise RuntimeError("route calculation state is not initialized")
+    return _route_calculation_from_row(row)
+
+
+def begin_route_calculation(
+    connection: sqlite3.Connection,
+    *,
+    active_list_count: int,
+    item_count: int,
+    started_at: float,
+) -> RouteCalculationResponse:
+    with transaction(connection, immediate=True):
+        connection.execute("DELETE FROM routes")
+        row = connection.execute(
+            """
+            UPDATE route_calculation_state
+            SET generation = generation + 1,
+                status = 'RUNNING',
+                active_list_count = ?,
+                item_count = ?,
+                result_count = 0,
+                optimizer_status = NULL,
+                started_at = ?,
+                completed_at = NULL,
+                elapsed_seconds = NULL,
+                timeout_seconds = NULL,
+                error_code = NULL,
+                detail = NULL
+            WHERE singleton = 1
+            RETURNING *
+            """,
+            (active_list_count, item_count, started_at),
+        ).fetchone()
+        if row is None:
+            raise RuntimeError("route calculation state is not initialized")
+        calculation = _route_calculation_from_row(row)
+    return calculation
+
+
+def complete_empty_route_calculation(
+    connection: sqlite3.Connection,
+    generation: int,
+    *,
+    completed_at: float,
+) -> bool:
     with transaction(connection, immediate=True):
         cursor = connection.execute(
             """
-            UPDATE shopping_lists
-            SET status = 'READY'
-            WHERE id = ? AND revision = ? AND status = 'COMPUTING'
+            UPDATE route_calculation_state
+            SET status = 'SUCCEEDED', result_count = 0,
+                completed_at = ?, elapsed_seconds = completed_at - started_at
+            WHERE singleton = 1 AND generation = ? AND status = 'RUNNING'
             """,
-            (shopping_list_id, revision),
+            (completed_at, generation),
         )
-        if cursor.rowcount == 0:
-            return False
-        if ranked_route_ids:
-            placeholders = ", ".join("?" for _ in ranked_route_ids)
-            existing_route_ids = {
-                row["id"]
-                for row in connection.execute(
-                    f"SELECT id FROM routes WHERE id IN ({placeholders})",
-                    ranked_route_ids,
-                )
-            }
-            missing_route_ids = set(ranked_route_ids) - existing_route_ids
-            if missing_route_ids:
-                raise ValueError(
-                    f"route IDs do not exist: {sorted(missing_route_ids)}"
-                )
-        connection.executemany(
+    return cursor.rowcount > 0
+
+
+def fail_route_calculation(
+    connection: sqlite3.Connection,
+    generation: int,
+    *,
+    error_code: RouteOptimizationErrorCode,
+    detail: str,
+    completed_at: float,
+) -> bool:
+    normalized_detail = detail.strip()
+    if not normalized_detail:
+        raise ValueError("detail must not be blank")
+    with transaction(connection, immediate=True):
+        cursor = connection.execute(
             """
-            INSERT INTO shopping_list_routes (shopping_list_id, route_id, position)
-            VALUES (?, ?, ?)
+            UPDATE route_calculation_state
+            SET status = 'FAILED', result_count = 0,
+                completed_at = ?, elapsed_seconds = completed_at - started_at,
+                error_code = ?, detail = ?
+            WHERE singleton = 1 AND generation = ? AND status = 'RUNNING'
+            """,
+            (completed_at, error_code.value, normalized_detail, generation),
+        )
+    return cursor.rowcount > 0
+
+
+_PRICE_QUANTUM = Decimal("0.01")
+
+
+def _selection_price(
+    selection: RouteItemSelection,
+    products_by_id: dict[int, OptimizationProduct],
+) -> float | None:
+    if selection.product is None:
+        return None
+    product = products_by_id.get(selection.product)
+    if product is None:
+        raise ValueError(f"route product {selection.product} is missing from catalog")
+    price = (
+        Decimal(str(product.price))
+        / Decimal(str(product.price_quantity))
+        * Decimal(str(selection.quantity))
+    ).quantize(_PRICE_QUANTUM, rounding=ROUND_HALF_UP)
+    return float(price)
+
+
+def publish_route_calculation(
+    connection: sqlite3.Connection,
+    generation: int,
+    result: RouteOptimizationResponse,
+    catalog: OptimizationCatalog,
+    *,
+    completed_at: float,
+) -> bool:
+    products_by_id = {product.id: product for product in catalog.products}
+    with transaction(connection, immediate=True):
+        current = connection.execute(
+            """
+            SELECT 1 FROM route_calculation_state
+            WHERE singleton = 1 AND generation = ? AND status = 'RUNNING'
+            """,
+            (generation,),
+        ).fetchone()
+        if current is None:
+            return False
+
+        for route_position, candidate in enumerate(result.candidates):
+            cursor = connection.execute(
+                """
+                INSERT INTO routes (
+                    position, distance, time, score, product_price,
+                    matched_item_count, distance_cost, time_cost, store_cost,
+                    modifier_penalty, error_code
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    route_position,
+                    candidate.distance,
+                    candidate.time,
+                    candidate.score,
+                    candidate.product_price,
+                    candidate.matched_item_count,
+                    candidate.score_components.distance_cost,
+                    candidate.score_components.time_cost,
+                    candidate.score_components.store_cost,
+                    candidate.score_components.modifier_penalty,
+                    candidate.error_code.value if candidate.error_code else None,
+                ),
+            )
+            route_id = cursor.lastrowid
+            if route_id is None:
+                raise RuntimeError("persisted route did not receive an ID")
+            connection.executemany(
+                """
+                INSERT INTO route_stores (route_id, store_id, position)
+                VALUES (?, ?, ?)
+                """,
+                (
+                    (route_id, store_id, position)
+                    for position, store_id in enumerate(candidate.stores)
+                ),
+            )
+            for selection_position, selection in enumerate(candidate.selections):
+                selection_price = _selection_price(selection, products_by_id)
+                connection.execute(
+                    """
+                    INSERT INTO route_item_selections (
+                        route_id, position, requested_tag, requested_unit,
+                        requested_quantity, product_id, selection_price
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        route_id,
+                        selection_position,
+                        selection.tag,
+                        selection.unit,
+                        selection.quantity,
+                        selection.product,
+                        selection_price,
+                    ),
+                )
+                connection.executemany(
+                    """
+                    INSERT INTO route_item_selection_modifiers (
+                        route_id, selection_position, modifier
+                    ) VALUES (?, ?, ?)
+                    """,
+                    (
+                        (route_id, selection_position, modifier)
+                        for modifier in selection.modifiers
+                    ),
+                )
+                if selection.product is not None:
+                    product = products_by_id.get(selection.product)
+                    if product is None:
+                        raise ValueError(
+                            f"route product {selection.product} is missing from catalog"
+                        )
+                    connection.executemany(
+                        """
+                        INSERT INTO route_item_product_modifiers (
+                            route_id, selection_position, modifier
+                        ) VALUES (?, ?, ?)
+                        """,
+                        (
+                            (route_id, selection_position, modifier)
+                            for modifier in product.modifiers
+                        ),
+                    )
+
+        cursor = connection.execute(
+            """
+            UPDATE route_calculation_state
+            SET status = 'SUCCEEDED', result_count = ?,
+                optimizer_status = ?, completed_at = ?,
+                elapsed_seconds = ?, timeout_seconds = ?
+            WHERE singleton = 1 AND generation = ? AND status = 'RUNNING'
             """,
             (
-                (shopping_list_id, route_id, position)
-                for position, route_id in enumerate(ranked_route_ids)
+                len(result.candidates),
+                result.status.value,
+                completed_at,
+                result.elapsed_seconds,
+                result.timeout_seconds,
+                generation,
             ),
         )
+        if cursor.rowcount == 0:
+            raise RuntimeError("route calculation generation changed during publish")
     return True
 
 
-def fail_shopping_list_computation(
-    connection: sqlite3.Connection, shopping_list_id: int, revision: int
-) -> bool:
+def get_route_candidates(connection: sqlite3.Connection) -> RouteCandidatesResponse:
     with transaction(connection):
-        cursor = connection.execute(
-            """
-            UPDATE shopping_lists
-            SET status = 'FAILED'
-            WHERE id = ? AND revision = ? AND status = 'COMPUTING'
-            """,
-            (shopping_list_id, revision),
-        )
-    return cursor.rowcount > 0
+        calculation = get_route_calculation(connection)
+        route_rows = connection.execute(
+            "SELECT * FROM routes ORDER BY position"
+        ).fetchall()
+        candidates: list[RouteCandidateResult] = []
+        for route in route_rows:
+            stores = [
+                RouteStoreSummary(
+                    id=row["id"],
+                    name=row["name"],
+                    address=row["address"],
+                    latitude=row["latitude"],
+                    longitude=row["longitude"],
+                )
+                for row in connection.execute(
+                    """
+                    SELECT store.id, store.name, store.address,
+                           store.latitude, store.longitude
+                    FROM route_stores AS route_store
+                    JOIN stores AS store ON store.id = route_store.store_id
+                    WHERE route_store.route_id = ?
+                    ORDER BY route_store.position
+                    """,
+                    (route["id"],),
+                )
+            ]
+            selection_rows = connection.execute(
+                """
+                SELECT selection.position, selection.requested_tag,
+                       selection.requested_unit, selection.requested_quantity,
+                       selection.product_id, selection.selection_price,
+                       product.name AS product_name,
+                       product.store_id AS product_store_id,
+                       product.unit AS product_unit,
+                       route_store.position AS store_position
+                FROM route_item_selections AS selection
+                LEFT JOIN products AS product ON product.id = selection.product_id
+                LEFT JOIN route_stores AS route_store
+                    ON route_store.route_id = selection.route_id
+                    AND route_store.store_id = product.store_id
+                WHERE selection.route_id = ?
+                ORDER BY selection.position
+                """,
+                (route["id"],),
+            ).fetchall()
+            modifiers_by_position: dict[int, list[str]] = {}
+            for modifier_row in connection.execute(
+                """
+                SELECT selection_position, modifier
+                FROM route_item_selection_modifiers
+                WHERE route_id = ?
+                ORDER BY selection_position, modifier
+                """,
+                (route["id"],),
+            ):
+                modifiers_by_position.setdefault(
+                    modifier_row["selection_position"], []
+                ).append(modifier_row["modifier"])
+            product_modifiers_by_position: dict[int, list[str]] = {}
+            for modifier_row in connection.execute(
+                """
+                SELECT selection_position, modifier
+                FROM route_item_product_modifiers
+                WHERE route_id = ?
+                ORDER BY selection_position, modifier
+                """,
+                (route["id"],),
+            ):
+                product_modifiers_by_position.setdefault(
+                    modifier_row["selection_position"], []
+                ).append(modifier_row["modifier"])
 
-
-def requeue_shopping_list(
-    connection: sqlite3.Connection, shopping_list_id: int
-) -> bool:
-    with transaction(connection):
-        cursor = connection.execute(
-            """
-            UPDATE shopping_lists
-            SET status = 'PENDING'
-            WHERE id = ? AND status = 'FAILED'
-            """,
-            (shopping_list_id,),
-        )
-    return cursor.rowcount > 0
+            selections = [
+                RouteItemSelection(
+                    tag=row["requested_tag"],
+                    modifiers=modifiers_by_position.get(row["position"], []),
+                    unit=row["requested_unit"],
+                    quantity=row["requested_quantity"],
+                    product=row["product_id"],
+                )
+                for row in selection_rows
+            ]
+            products = [
+                RouteProductSummary(
+                    id=row["product_id"],
+                    name=row["product_name"],
+                    store=row["product_store_id"],
+                    unit=row["product_unit"],
+                    modifiers=product_modifiers_by_position.get(
+                        row["position"], []
+                    ),
+                    selectionPrice=row["selection_price"],
+                )
+                for row in sorted(
+                    (row for row in selection_rows if row["product_id"] is not None),
+                    key=lambda row: (row["store_position"], row["position"]),
+                )
+            ]
+            candidates.append(
+                RouteCandidateResult(
+                    id=route["id"],
+                    stores=stores,
+                    products=products,
+                    selections=selections,
+                    distance=route["distance"],
+                    time=route["time"],
+                    score=route["score"],
+                    productPrice=route["product_price"],
+                    matchedItemCount=route["matched_item_count"],
+                    scoreComponents=RouteScoreComponents(
+                        productPrice=route["product_price"],
+                        distanceCost=route["distance_cost"],
+                        timeCost=route["time_cost"],
+                        storeCost=route["store_cost"],
+                        modifierPenalty=route["modifier_penalty"],
+                    ),
+                    errorCode=route["error_code"],
+                )
+            )
+    return RouteCandidatesResponse(
+        generation=calculation.generation,
+        candidates=candidates,
+    )
 
 
 def load_optimization_catalog(
@@ -1561,6 +1991,8 @@ def load_optimization_catalog(
             store.id AS store_id,
             store.name AS store_name,
             store.address AS store_address,
+            store.latitude AS store_latitude,
+            store.longitude AS store_longitude,
             product.id AS product_id,
             product.name AS product_name,
             product.unit AS product_unit,
@@ -1605,13 +2037,11 @@ def load_optimization_catalog(
     eligible_rows: dict[int, sqlite3.Row] = {}
     for product_id, row in sorted(product_rows.items()):
         product_modifiers = tuple(sorted(modifiers_by_product[product_id]))
-        modifier_set = set(product_modifiers)
         matching_item_indices = tuple(
             item_index
             for item_index, item in enumerate(items)
             if item.tag in matching_tags_by_product[product_id]
             and item.unit == row["product_unit"]
-            and set(item.modifiers).issubset(modifier_set)
         )
         if not matching_item_indices:
             continue
@@ -1641,6 +2071,8 @@ def load_optimization_catalog(
             id=store_id,
             name=row["store_name"],
             address=row["store_address"],
+            latitude=row["store_latitude"],
+            longitude=row["store_longitude"],
             products=store_products[store_id],
         )
         for store_id, row in sorted(store_rows.items())

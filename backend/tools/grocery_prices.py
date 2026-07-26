@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Iterable
 from datetime import date
 from typing import TypedDict
 
@@ -255,14 +256,23 @@ def seasonal(
     connection: sqlite3.Connection,
     *,
     as_of: date | None = None,
+    product_ids: Iterable[int] | None = None,
     min_history: int = 30,
     season_month_quantile: float = 0.10,
     price_reduction_threshold: float = 0.10,
 ) -> list[SeasonalityResult]:
     price_history = _load_price_history(connection)
+    candidate_product_ids = (
+        tuple(dict.fromkeys(product_ids))
+        if product_ids is not None
+        else tuple(
+            int(product_id)
+            for product_id in price_history["product_id"].drop_duplicates()
+        )
+    )
     results = [
         result
-        for product_id in price_history["product_id"].drop_duplicates()
+        for product_id in candidate_product_ids
         if (
             result := _classify_seasonality(
                 price_history,

@@ -9,7 +9,6 @@ import {
 import * as shoppingListApi from '../../../frontend/src/api';
 import { SavedListsScreen } from '../../../frontend/src/screens/SavedListsScreen';
 import type { ShoppingListResponse } from '../../../frontend/src/types/api';
-import * as metadataStorage from '../../../frontend/src/utils/savedListsStorage';
 
 jest.mock('@react-navigation/native', () => {
   const React = jest.requireActual<typeof import('react')>('react');
@@ -25,15 +24,7 @@ jest.mock('../../../frontend/src/api', () => {
   return {
     ...actual,
     listShoppingLists: jest.fn(),
-  };
-});
-
-jest.mock('../../../frontend/src/utils/savedListsStorage', () => {
-  const actual = jest.requireActual('../../../frontend/src/utils/savedListsStorage');
-  return {
-    ...actual,
-    loadShoppingListMetadata: jest.fn(),
-    saveShoppingListMetadata: jest.fn(),
+    updateShoppingListActive: jest.fn(),
   };
 });
 
@@ -42,7 +33,6 @@ jest.mock('../../../frontend/src/components/common/AppBottomNav', () => ({
 }));
 
 const mockedApi = jest.mocked(shoppingListApi);
-const mockedMetadata = jest.mocked(metadataStorage);
 
 const lists: readonly ShoppingListResponse[] = [
   {
@@ -50,19 +40,15 @@ const lists: readonly ShoppingListResponse[] = [
     name: 'Weekend',
     items: [{ tag: 'milk', modifiers: [], unit: 'gallon', quantity: 1 }],
     active: true,
-    routes: [],
-    status: 'PENDING',
   },
   {
     id: 9,
     name: 'Party',
     items: [
       { tag: 'bread', modifiers: [], unit: 'loaf', quantity: 1 },
-      { tag: 'egg', modifiers: [], unit: 'count', quantity: 6 },
+      { tag: 'egg', modifiers: [], unit: 'count', quantity: 12 },
     ],
-    active: true,
-    routes: [],
-    status: 'PENDING',
+    active: false,
   },
 ];
 
@@ -78,15 +64,10 @@ const renderScreen = () =>
 beforeEach(() => {
   jest.resetAllMocks();
   mockedApi.listShoppingLists.mockResolvedValue(lists);
-  mockedMetadata.loadShoppingListMetadata.mockResolvedValue({
-    version: 1,
-    collections: [],
-    lists: {
-      7: { listId: 7, favorite: true, archived: false, collectionId: null },
-      9: { listId: 9, favorite: false, archived: true, collectionId: null },
-    },
-  });
-  mockedMetadata.saveShoppingListMetadata.mockResolvedValue(undefined);
+  mockedApi.updateShoppingListActive.mockImplementation(async (id, request) => ({
+    ...lists.find((list) => list.id === id)!,
+    active: request.active,
+  }));
 });
 
 describe('<SavedListsScreen />', () => {
@@ -94,50 +75,48 @@ describe('<SavedListsScreen />', () => {
     await renderScreen();
 
     expect(await screen.findByText('Weekend')).toBeOnTheScreen();
-    expect(screen.queryByText('Party')).not.toBeOnTheScreen();
-    expect(screen.getByText('1 item · PENDING')).toBeOnTheScreen();
+    expect(screen.getByText('Party')).toBeOnTheScreen();
+    expect(screen.getByText('1 item · Active')).toBeOnTheScreen();
+    expect(screen.getByText('2 items · Inactive')).toBeOnTheScreen();
 
     await fireEvent.press(screen.getByLabelText('Edit Weekend'));
     expect(navigation.navigate).toHaveBeenCalledWith('NewShoppingList', { listId: 7 });
   });
 
-  test('filters favorites and archived lists from local metadata', async () => {
+  test('filters active and inactive lists from server state', async () => {
     await renderScreen();
     await screen.findByText('Weekend');
 
-    await fireEvent.press(screen.getByText('Favorites'));
+    await fireEvent.press(screen.getByText('Active'));
     expect(screen.getByText('Weekend')).toBeOnTheScreen();
     expect(screen.queryByText('Party')).not.toBeOnTheScreen();
 
-    await fireEvent.press(screen.getByText('Archived'));
+    await fireEvent.press(screen.getByText('Inactive'));
     expect(await screen.findByText('Party')).toBeOnTheScreen();
     expect(screen.queryByText('Weekend')).not.toBeOnTheScreen();
   });
 
-  test('persists favorite changes without changing server list data', async () => {
+  test('optimistically toggles active and merges the server response', async () => {
     await renderScreen();
     await screen.findByText('Weekend');
 
-    await fireEvent.press(screen.getByLabelText('Remove Weekend favorite'));
+    await fireEvent.press(screen.getByLabelText('Weekend active'));
     await waitFor(() => {
-      expect(mockedMetadata.saveShoppingListMetadata).toHaveBeenCalledWith({
-        version: 1,
-        collections: [],
-        lists: {
-          7: { listId: 7, favorite: false, archived: false, collectionId: null },
-          9: { listId: 9, favorite: false, archived: true, collectionId: null },
-        },
+      expect(mockedApi.updateShoppingListActive).toHaveBeenCalledWith(7, {
+        active: false,
       });
     });
-    expect(mockedApi.listShoppingLists).toHaveBeenCalledTimes(1);
+    expect(screen.getByLabelText('Weekend active').props.accessibilityState.checked).toBe(false);
   });
 
-  test('keeps server lists visible when local metadata cannot load', async () => {
-    mockedMetadata.loadShoppingListMetadata.mockRejectedValue(new Error('Storage unavailable'));
+  test('rolls back a failed active update and renders a row error', async () => {
+    mockedApi.updateShoppingListActive.mockRejectedValueOnce(new Error('Update failed'));
     await renderScreen();
+    await screen.findByText('Weekend');
 
-    expect(await screen.findByText('Weekend')).toBeOnTheScreen();
-    expect(screen.getByText('Favorites and organization are unavailable on this device.')).toBeOnTheScreen();
+    await fireEvent.press(screen.getByLabelText('Weekend active'));
+    expect(await screen.findByText('Update failed')).toBeOnTheScreen();
+    expect(screen.getByLabelText('Weekend active').props.accessibilityState.checked).toBe(true);
   });
 
   test('shows a retry action when the backend list request fails', async () => {

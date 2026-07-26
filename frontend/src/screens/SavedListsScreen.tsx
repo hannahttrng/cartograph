@@ -11,22 +11,15 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { listShoppingLists, toApiError } from '../api';
+import { listShoppingLists, toApiError, updateShoppingListActive } from '../api';
 import { AppBottomNav, DesignIcon, DisclosureArrow, EmptyState, FilterTabs } from '../components/common';
 import { ListIcon } from '../components/list/ListIcon';
 import type { RootStackParamList } from '../navigation/types';
 import { colors, radius, spacing, typography } from '../theme';
 import type { EntityId, ShoppingListResponse } from '../types/api';
-import type { ShoppingListMetadataStore } from '../types/savedLists';
-import {
-  loadShoppingListMetadata,
-  metadataForList,
-  pruneShoppingListMetadata,
-  saveShoppingListMetadata,
-} from '../utils/savedListsStorage';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'SavedLists'>;
-type ListFilter = 'all' | 'favorites' | 'archived';
+type ListFilter = 'all' | 'active' | 'inactive';
 
 const listIconNames = ['grocery', 'mealPrep', 'bbq', 'household', 'costco'] as const;
 
@@ -41,63 +34,32 @@ function iconNameForList(list: Pick<ShoppingListResponse, 'name'>, index: number
 
 const filters = [
   { label: 'All Lists', value: 'all' },
-  { label: 'Favorites', value: 'favorites' },
-  { label: 'Archived', value: 'archived' },
+  { label: 'Active', value: 'active' },
+  { label: 'Inactive', value: 'inactive' },
 ] as const;
-
-const emptyMetadataStore = (): ShoppingListMetadataStore => ({
-  collections: [],
-  lists: {},
-  version: 1,
-});
 
 export function SavedListsScreen({ navigation }: Props) {
   const [filter, setFilter] = useState<ListFilter>('all');
   const [lists, setLists] = useState<readonly ShoppingListResponse[]>([]);
-  const [metadata, setMetadata] = useState<ShoppingListMetadataStore>(emptyMetadataStore);
   const [isLoading, setIsLoading] = useState(true);
   const [requestError, setRequestError] = useState<string | null>(null);
-  const [metadataError, setMetadataError] = useState<string | null>(null);
+  const [busyListIds, setBusyListIds] = useState<ReadonlySet<EntityId>>(new Set());
+  const [toggleErrors, setToggleErrors] = useState<Readonly<Record<number, string>>>({});
 
   const loadData = useCallback(async (isActive: () => boolean = () => true) => {
     setIsLoading(true);
     setRequestError(null);
-    setMetadataError(null);
 
-    let loadedLists: readonly ShoppingListResponse[];
     try {
-      loadedLists = await listShoppingLists();
+      const loadedLists = await listShoppingLists();
       if (!isActive()) {
         return;
       }
       setLists(loadedLists);
+      setIsLoading(false);
     } catch (error: unknown) {
       if (isActive()) {
         setRequestError(toApiError(error).message);
-        setIsLoading(false);
-      }
-      return;
-    }
-
-    try {
-      const loadedMetadata = await loadShoppingListMetadata();
-      if (!isActive()) {
-        return;
-      }
-      const prunedMetadata = pruneShoppingListMetadata(
-        loadedMetadata,
-        loadedLists.map((list) => list.id),
-      );
-      setMetadata(prunedMetadata);
-      if (JSON.stringify(prunedMetadata) !== JSON.stringify(loadedMetadata)) {
-        await saveShoppingListMetadata(prunedMetadata);
-      }
-    } catch {
-      if (isActive()) {
-        setMetadataError('Favorites and organization are unavailable on this device.');
-      }
-    } finally {
-      if (isActive()) {
         setIsLoading(false);
       }
     }
@@ -114,48 +76,55 @@ export function SavedListsScreen({ navigation }: Props) {
   );
 
   const visibleLists = useMemo(() => {
-    if (filter === 'favorites') {
-      return lists.filter((list) => {
-        const listMetadata = metadataForList(metadata, list.id);
-        return listMetadata.favorite && !listMetadata.archived;
-      });
+    if (filter === 'active') {
+      return lists.filter((list) => list.active);
     }
-    if (filter === 'archived') {
-      return lists.filter((list) => metadataForList(metadata, list.id).archived);
+    if (filter === 'inactive') {
+      return lists.filter((list) => !list.active);
     }
-    return lists.filter((list) => !metadataForList(metadata, list.id).archived);
-  }, [filter, lists, metadata]);
+    return lists;
+  }, [filter, lists]);
 
-  const toggleFavorite = useCallback(
-    async (id: EntityId) => {
-      const currentListMetadata = metadataForList(metadata, id);
-      const nextMetadata: ShoppingListMetadataStore = {
-        ...metadata,
-        lists: {
-          ...metadata.lists,
-          [String(id)]: {
-            ...currentListMetadata,
-            favorite: !currentListMetadata.favorite,
-          },
-        },
-      };
-      setMetadata(nextMetadata);
-      setMetadataError(null);
+  const toggleActive = useCallback(
+    async (list: ShoppingListResponse) => {
+      if (busyListIds.has(list.id)) return;
+      const nextActive = !list.active;
+      setLists((current) => current.map((item) =>
+        item.id === list.id ? { ...item, active: nextActive } : item
+      ));
+      setBusyListIds((current) => new Set(current).add(list.id));
+      setToggleErrors((current) => {
+        const next = { ...current };
+        delete next[list.id];
+        return next;
+      });
       try {
-        await saveShoppingListMetadata(nextMetadata);
-      } catch {
-        setMetadata(metadata);
-        setMetadataError('The favorite could not be saved on this device.');
+        const updated = await updateShoppingListActive(list.id, { active: nextActive });
+        setLists((current) => current.map((item) => item.id === list.id ? updated : item));
+      } catch (error: unknown) {
+        setLists((current) => current.map((item) =>
+          item.id === list.id ? { ...item, active: list.active } : item
+        ));
+        setToggleErrors((current) => ({
+          ...current,
+          [list.id]: toApiError(error).message,
+        }));
+      } finally {
+        setBusyListIds((current) => {
+          const next = new Set(current);
+          next.delete(list.id);
+          return next;
+        });
       }
     },
-    [metadata],
+    [busyListIds],
   );
 
   const emptyDescription =
-    filter === 'archived'
-      ? 'Lists archived on this device will appear here.'
-      : filter === 'favorites'
-        ? 'Use the star on a list to keep it here.'
+    filter === 'active'
+      ? 'Activate a list to include it in route planning.'
+      : filter === 'inactive'
+        ? 'Lists you pause will appear here.'
         : 'Create a list to start planning a shopping trip.';
 
   return (
@@ -181,33 +150,36 @@ export function SavedListsScreen({ navigation }: Props) {
         ) : visibleLists.length === 0 ? (
           <EmptyState description={emptyDescription} title={filter === 'all' ? 'No shopping lists' : `No ${filter} lists`} />
         ) : visibleLists.map((list, index) => (
-          <View key={list.id} style={styles.listCard}>
-            <Pressable
-              accessibilityLabel={`Edit ${list.name}`}
-              accessibilityRole="button"
-              onPress={() => navigation.navigate('NewShoppingList', { listId: list.id })}
-              style={({ pressed }) => [styles.listMain, pressed && styles.pressed]}
-            >
-              <ListIcon iconName={iconNameForList(list, index)} size={38} />
-              <View style={styles.listCopy}>
-                <Text style={styles.listName}>{list.name}</Text>
-                <Text style={styles.listMeta}>{list.items.length} {list.items.length === 1 ? 'item' : 'items'} · {list.status}</Text>
-              </View>
-              <DisclosureArrow direction="right" style={styles.arrow} />
-            </Pressable>
-            <Pressable
-              accessibilityLabel={`${metadataForList(metadata, list.id).favorite ? 'Remove' : 'Add'} ${list.name} favorite`}
-              accessibilityRole="button"
-              accessibilityState={{ checked: metadataForList(metadata, list.id).favorite }}
-              hitSlop={10}
-              onPress={() => void toggleFavorite(list.id)}
-              style={styles.favoriteButton}
-            >
-              <DesignIcon name={metadataForList(metadata, list.id).favorite ? 'starFilled' : 'star'} size={24} />
-            </Pressable>
+          <View key={list.id}>
+            <View style={styles.listCard}>
+              <Pressable
+                accessibilityLabel={`Edit ${list.name}`}
+                accessibilityRole="button"
+                onPress={() => navigation.navigate('NewShoppingList', { listId: list.id })}
+                style={({ pressed }) => [styles.listMain, pressed && styles.pressed]}
+              >
+                <ListIcon iconName={iconNameForList(list, index)} size={38} />
+                <View style={styles.listCopy}>
+                  <Text style={styles.listName}>{list.name}</Text>
+                  <Text style={styles.listMeta}>{list.items.length} {list.items.length === 1 ? 'item' : 'items'} · {list.active ? 'Active' : 'Inactive'}</Text>
+                </View>
+                <DisclosureArrow direction="right" style={styles.arrow} />
+              </Pressable>
+              <Pressable
+                accessibilityLabel={`${list.name} active`}
+                accessibilityRole="switch"
+                accessibilityState={{ checked: list.active, busy: busyListIds.has(list.id), disabled: busyListIds.has(list.id) }}
+                disabled={busyListIds.has(list.id)}
+                onPress={() => void toggleActive(list)}
+                style={[styles.activeSwitch, list.active && styles.activeSwitchOn]}
+              >
+                <View style={[styles.switchThumb, list.active && styles.switchThumbOn]} />
+              </Pressable>
+              <View style={styles.switchSpacer} />
+            </View>
+            {toggleErrors[list.id] ? <Text accessibilityLiveRegion="assertive" style={styles.rowError}>{toggleErrors[list.id]}</Text> : null}
           </View>
         ))}
-        {metadataError ? <Text accessibilityLiveRegion="polite" style={styles.metadataError}>{metadataError}</Text> : null}
       </ScrollView>
       <AppBottomNav active="lists" navigation={navigation} />
     </SafeAreaView>
@@ -228,15 +200,17 @@ const styles = StyleSheet.create({
   listCopy: { flex: 1, marginHorizontal: spacing.sm },
   listName: typography.bodyStrong,
   listMeta: { ...typography.caption, marginTop: spacing.xxs },
-  star: { color: colors.borderStrong, fontSize: 22 },
-  starActive: { color: colors.warning },
-  favoriteButton: { alignItems: 'center', height: 52, justifyContent: 'center', marginRight: spacing.md, width: 42 },
+  switchSpacer: { width: spacing.md },
+  activeSwitch: { backgroundColor: colors.borderStrong, borderRadius: 14, height: 28, justifyContent: 'center', padding: 2, width: 48 },
+  activeSwitchOn: { backgroundColor: colors.primaryMuted },
+  switchThumb: { backgroundColor: colors.surface, borderRadius: 12, height: 24, width: 24 },
+  switchThumbOn: { alignSelf: 'flex-end', backgroundColor: colors.primary },
   arrow: { marginLeft: spacing.xs },
   statePanel: { alignItems: 'center', justifyContent: 'center', minHeight: 220, padding: spacing.lg },
   stateText: { ...typography.body, color: colors.textMuted, marginTop: spacing.sm, textAlign: 'center' },
   errorText: { ...typography.body, color: colors.danger, textAlign: 'center' },
   retryButton: { alignItems: 'center', backgroundColor: colors.primary, borderRadius: radius.md, justifyContent: 'center', marginTop: spacing.md, minHeight: 42, paddingHorizontal: spacing.lg },
   retryText: { ...typography.bodyStrong, color: colors.textInverse },
-  metadataError: { ...typography.caption, color: colors.danger, marginTop: spacing.sm, textAlign: 'center' },
+  rowError: { ...typography.caption, color: colors.danger, marginTop: spacing.xs, paddingHorizontal: spacing.sm },
   pressed: { opacity: 0.72 },
 });

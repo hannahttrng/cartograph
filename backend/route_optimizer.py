@@ -1,5 +1,6 @@
 """Pure domain inputs and deterministic heuristic ranking for shopping routes."""
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
 from math import isfinite
@@ -24,6 +25,8 @@ TIME_QUANTUM = Decimal("0.01")
 SCORE_QUANTUM = Decimal("0.000001")
 SCORE_UNITS_PER_DOLLAR = 3_000_000
 PRICE_SCORE_UNITS_PER_CENT = 30_000
+WITNESS_COVERAGE_PERCENT = 85
+PERCENT_SCALE = 100
 
 
 class NoEligibleProductsError(ValueError):
@@ -36,6 +39,18 @@ class NoFeasibleRouteError(ValueError):
 
 class OptimizationFailedError(RuntimeError):
     pass
+
+
+class RouteOptimizationCancelled(Exception):
+    pass
+
+
+_ShouldCancel = Callable[[], bool]
+
+
+def _check_cancelled(should_cancel: _ShouldCancel | None) -> None:
+    if should_cancel is not None and should_cancel():
+        raise RouteOptimizationCancelled("route optimization was cancelled")
 
 
 def _decimal(value: Decimal | float | str) -> Decimal:
@@ -55,15 +70,17 @@ def _score_units_to_decimal(units: int) -> Decimal:
 
 @dataclass(frozen=True, slots=True)
 class RouteScorePolicy:
-    distance_dollars_per_mile: Decimal = Decimal("0.70")
-    time_dollars_per_hour: Decimal = Decimal("20.00")
-    store_dollars: Decimal = Decimal("2.50")
+    distance_dollars_per_mile: Decimal = Decimal("0.40")
+    time_dollars_per_hour: Decimal = Decimal("8.00")
+    store_dollars: Decimal = Decimal("1.50")
+    modifier_miss_dollars: Decimal = Decimal("1.50")
 
     def __post_init__(self) -> None:
         for field_name in (
             "distance_dollars_per_mile",
             "time_dollars_per_hour",
             "store_dollars",
+            "modifier_miss_dollars",
         ):
             value = _decimal(getattr(self, field_name))
             if not value.is_finite() or value < 0:
@@ -74,6 +91,7 @@ class RouteScorePolicy:
             (self.distance_dollars_per_mile, 1_000, "distance rate"),
             (self.time_dollars_per_hour, 6_000, "time rate"),
             (self.store_dollars, 1, "store cost"),
+            (self.modifier_miss_dollars, 1, "modifier miss cost"),
         ):
             scaled = value * SCORE_UNITS_PER_DOLLAR / denominator
             if scaled != scaled.to_integral_value():
@@ -93,11 +111,14 @@ class RouteScorePolicy:
     def store_score_units(self) -> int:
         return int(self.store_dollars * SCORE_UNITS_PER_DOLLAR)
 
+    @property
+    def modifier_miss_score_units(self) -> int:
+        return int(self.modifier_miss_dollars * SCORE_UNITS_PER_DOLLAR)
+
 
 @dataclass(frozen=True, slots=True)
 class SolverSettings:
     timeout_seconds: float = 10.0
-    max_candidates_per_store_sequence: int = 3
     assignment_beam_width: int = 64
     sequence_beam_width: int = 16
     max_product_choices_per_item: int = 8
@@ -106,7 +127,6 @@ class SolverSettings:
         if not isfinite(self.timeout_seconds) or self.timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be positive and finite")
         for field_name in (
-            "max_candidates_per_store_sequence",
             "assignment_beam_width",
             "sequence_beam_width",
             "max_product_choices_per_item",
@@ -163,8 +183,8 @@ class OptimizationCatalog:
         store_ids = tuple(store.id for store in self.stores)
         if store_ids != tuple(sorted(set(store_ids))):
             raise ValueError("stores must be unique and sorted by ID")
-        if len(store_ids) > 10:
-            raise ValueError("route optimization supports at most 10 stores")
+        if len(store_ids) > 12:
+            raise ValueError("route optimization supports at most 12 stores")
         product_ids = tuple(product.id for product in self.products)
         if product_ids != tuple(sorted(set(product_ids))):
             raise ValueError("products must be unique and sorted by ID")
@@ -218,6 +238,7 @@ class _AssignmentState:
     store_ids: frozenset[int]
     price_cents: int
     matched_count: int
+    modifier_miss_count: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -236,21 +257,22 @@ class _RankedCandidate:
 
 
 def _maximum_product_matching(
-    catalog: OptimizationCatalog,
+    product_ids_by_item: dict[int, tuple[int, ...]],
     allowed_product_ids: frozenset[int] | None = None,
+    should_cancel: _ShouldCancel | None = None,
 ) -> dict[int, int]:
-    candidates = {
-        item_index: tuple(
-            product.id
-            for product in catalog.products
-            if item_index in product.matching_item_indices
-            and (allowed_product_ids is None or product.id in allowed_product_ids)
+    candidates: dict[int, tuple[int, ...]] = {}
+    for item_index, product_ids in product_ids_by_item.items():
+        _check_cancelled(should_cancel)
+        candidates[item_index] = tuple(
+            product_id
+            for product_id in product_ids
+            if allowed_product_ids is None or product_id in allowed_product_ids
         )
-        for item_index in range(len(catalog.requested_items))
-    }
     product_item: dict[int, int] = {}
 
     def assign(item_index: int, seen_products: set[int]) -> bool:
+        _check_cancelled(should_cancel)
         for product_id in candidates[item_index]:
             if product_id in seen_products:
                 continue
@@ -266,6 +288,7 @@ def _maximum_product_matching(
         key=lambda item_index: (len(candidates[item_index]), item_index),
     )
     for item_index in ordered_items:
+        _check_cancelled(should_cancel)
         assign(item_index, set())
     return {
         item_index: product_id for product_id, item_index in product_item.items()
@@ -277,6 +300,7 @@ def _state_from_assignments(
     assignment_by_item: dict[int, int],
     products_by_id: dict[int, OptimizationProduct],
     edge_price_cents: dict[tuple[int, int], int],
+    edge_modifier_misses: dict[tuple[int, int], int],
 ) -> _AssignmentState:
     assignments = tuple(
         assignment_by_item.get(item_index)
@@ -300,6 +324,11 @@ def _state_from_assignments(
             if product_id is not None
         ),
         matched_count=len(selected_product_ids),
+        modifier_miss_count=sum(
+            edge_modifier_misses[(item_index, product_id)]
+            for item_index, product_id in enumerate(assignments)
+            if product_id is not None
+        ),
     )
 
 
@@ -322,6 +351,7 @@ def _assignment_state_key(
     provisional_score = (
         state.price_cents * PRICE_SCORE_UNITS_PER_CENT
         + len(state.store_ids) * policy.store_score_units
+        + state.modifier_miss_count * policy.modifier_miss_score_units
     )
     return (
         -state.matched_count,
@@ -337,12 +367,15 @@ def _product_choice_key(
     item_index: int,
     state: _AssignmentState,
     edge_price_cents: dict[tuple[int, int], int],
+    edge_modifier_misses: dict[tuple[int, int], int],
     policy: RouteScorePolicy,
 ) -> tuple[int, int, int, int]:
     adds_store = product.store_id not in state.store_ids
     incremental_score = (
         edge_price_cents[(item_index, product.id)] * PRICE_SCORE_UNITS_PER_CENT
         + (policy.store_score_units if adds_store else 0)
+        + edge_modifier_misses[(item_index, product.id)]
+        * policy.modifier_miss_score_units
     )
     return (incremental_score, int(adds_store), product.store_id, product.id)
 
@@ -353,6 +386,7 @@ def _assignment_choices(
     products_by_item: dict[int, tuple[OptimizationProduct, ...]],
     witness_product_id: int | None,
     edge_price_cents: dict[tuple[int, int], int],
+    edge_modifier_misses: dict[tuple[int, int], int],
     policy: RouteScorePolicy,
     settings: SolverSettings,
 ) -> tuple[int | None, ...]:
@@ -363,7 +397,12 @@ def _assignment_choices(
             if product.id not in state.used_product_ids
         ),
         key=lambda product: _product_choice_key(
-            product, item_index, state, edge_price_cents, policy
+            product,
+            item_index,
+            state,
+            edge_price_cents,
+            edge_modifier_misses,
+            policy,
         ),
     )
     selected: list[int | None] = []
@@ -390,6 +429,7 @@ def _extend_assignment(
     product_id: int | None,
     products_by_id: dict[int, OptimizationProduct],
     edge_price_cents: dict[tuple[int, int], int],
+    edge_modifier_misses: dict[tuple[int, int], int],
 ) -> _AssignmentState:
     assignments = list(state.assignments)
     assignments[item_index] = product_id
@@ -400,6 +440,7 @@ def _extend_assignment(
             store_ids=state.store_ids,
             price_cents=state.price_cents,
             matched_count=state.matched_count,
+            modifier_miss_count=state.modifier_miss_count,
         )
     product = products_by_id[product_id]
     return _AssignmentState(
@@ -408,6 +449,10 @@ def _extend_assignment(
         store_ids=state.store_ids | {product.store_id},
         price_cents=state.price_cents + edge_price_cents[(item_index, product_id)],
         matched_count=state.matched_count + 1,
+        modifier_miss_count=(
+            state.modifier_miss_count
+            + edge_modifier_misses[(item_index, product_id)]
+        ),
     )
 
 
@@ -452,24 +497,42 @@ def _prune_assignment_beam(
 def _seed_assignment_states(
     catalog: OptimizationCatalog,
     products_by_id: dict[int, OptimizationProduct],
+    product_ids_by_item: dict[int, tuple[int, ...]],
     edge_price_cents: dict[tuple[int, int], int],
+    edge_modifier_misses: dict[tuple[int, int], int],
+    should_cancel: _ShouldCancel | None = None,
 ) -> tuple[list[_AssignmentState], dict[int, int]]:
-    global_witness = _maximum_product_matching(catalog)
+    global_witness = _maximum_product_matching(
+        product_ids_by_item,
+        should_cancel=should_cancel,
+    )
     witnesses = [global_witness]
     for store in catalog.stores:
+        _check_cancelled(should_cancel)
         store_product_ids = frozenset(
             product.id
             for product in catalog.products
             if product.store_id == store.id
         )
-        witnesses.append(_maximum_product_matching(catalog, store_product_ids))
+        witnesses.append(
+            _maximum_product_matching(
+                product_ids_by_item,
+                store_product_ids,
+                should_cancel,
+            )
+        )
 
     unique: dict[tuple[int | None, ...], _AssignmentState] = {}
     for witness in witnesses:
+        _check_cancelled(should_cancel)
         if not witness:
             continue
         state = _state_from_assignments(
-            catalog, witness, products_by_id, edge_price_cents
+            catalog,
+            witness,
+            products_by_id,
+            edge_price_cents,
+            edge_modifier_misses,
         )
         unique[state.assignments] = state
     return list(unique.values()), global_witness
@@ -479,21 +542,43 @@ def _enumerate_assignments(
     catalog: OptimizationCatalog,
     products_by_id: dict[int, OptimizationProduct],
     edge_price_cents: dict[tuple[int, int], int],
+    edge_modifier_misses: dict[tuple[int, int], int],
     policy: RouteScorePolicy,
     settings: SolverSettings,
     deadline: float,
+    should_cancel: _ShouldCancel | None = None,
 ) -> tuple[list[_AssignmentState], bool]:
-    seed_states, global_witness = _seed_assignment_states(
-        catalog, products_by_id, edge_price_cents
-    )
+    _check_cancelled(should_cancel)
     products_by_item = {
         item_index: tuple(
-            product
-            for product in catalog.products
-            if item_index in product.matching_item_indices
+            sorted(
+                (
+                    product
+                    for product in catalog.products
+                    if item_index in product.matching_item_indices
+                ),
+                key=lambda candidate: (
+                    edge_modifier_misses[(item_index, candidate.id)],
+                    edge_price_cents[(item_index, candidate.id)],
+                    candidate.id,
+                ),
+            )
         )
         for item_index in range(len(catalog.requested_items))
     }
+    product_ids_by_item = {
+        item_index: tuple(product.id for product in products)
+        for item_index, products in products_by_item.items()
+    }
+    seed_states, global_witness = _seed_assignment_states(
+        catalog,
+        products_by_id,
+        product_ids_by_item,
+        edge_price_cents,
+        edge_modifier_misses,
+        should_cancel,
+    )
+    _check_cancelled(should_cancel)
     product_ranks = {
         product.id: rank
         for rank, product in enumerate(catalog.products, start=1)
@@ -509,10 +594,12 @@ def _enumerate_assignments(
             store_ids=frozenset(),
             price_cents=0,
             matched_count=0,
+            modifier_miss_count=0,
         )
     ]
 
     for item_index in item_order:
+        _check_cancelled(should_cancel)
         if monotonic() >= deadline:
             unique = {
                 state.assignments: state for state in [*seed_states, *beam]
@@ -520,12 +607,14 @@ def _enumerate_assignments(
             return list(unique.values()), True
         expanded: dict[tuple[int | None, ...], _AssignmentState] = {}
         for state in beam:
+            _check_cancelled(should_cancel)
             for product_id in _assignment_choices(
                 item_index,
                 state,
                 products_by_item,
                 global_witness.get(item_index),
                 edge_price_cents,
+                edge_modifier_misses,
                 policy,
                 settings,
             ):
@@ -535,8 +624,10 @@ def _enumerate_assignments(
                     product_id,
                     products_by_id,
                     edge_price_cents,
+                    edge_modifier_misses,
                 )
                 expanded[next_state.assignments] = next_state
+            _check_cancelled(should_cancel)
         beam = _prune_assignment_beam(
             list(expanded.values()),
             policy,
@@ -575,11 +666,13 @@ def _measure_store_sequence(
     store_sequence: tuple[int, ...],
     travel: DirectedTravelMatrix,
     policy: RouteScorePolicy,
+    should_cancel: _ShouldCancel | None = None,
 ) -> _RoutePlan | None:
     route_nodes: tuple[int | None, ...] = (None, *store_sequence, None)
     distance_milli_miles = 0
     time_centi_minutes = 0
     for origin, destination in zip(route_nodes, route_nodes[1:]):
+        _check_cancelled(should_cancel)
         metric = travel.get(origin, destination)
         if metric is None:
             return None
@@ -600,10 +693,12 @@ def _best_store_sequence(
     store_ids: tuple[int, ...],
     travel: DirectedTravelMatrix,
     policy: RouteScorePolicy,
+    should_cancel: _ShouldCancel | None = None,
 ) -> tuple[int, ...] | None:
     state_count = 1 << len(store_ids)
     paths: dict[tuple[int, int], tuple[int, tuple[int, ...]]] = {}
     for index, store_id in enumerate(store_ids):
+        _check_cancelled(should_cancel)
         metric = travel.get(None, store_id)
         if metric is not None:
             paths[(1 << index, index)] = (
@@ -612,6 +707,7 @@ def _best_store_sequence(
             )
 
     for mask in range(1, state_count):
+        _check_cancelled(should_cancel)
         for last_index in range(len(store_ids)):
             current = paths.get((mask, last_index))
             if current is None:
@@ -635,6 +731,7 @@ def _best_store_sequence(
     full_mask = state_count - 1
     complete: list[tuple[int, tuple[int, ...]]] = []
     for last_index, last_store_id in enumerate(store_ids):
+        _check_cancelled(should_cancel)
         current = paths.get((full_mask, last_index))
         return_metric = travel.get(last_store_id, None)
         if current is None or return_metric is None:
@@ -653,9 +750,11 @@ def _beam_store_sequences(
     travel: DirectedTravelMatrix,
     policy: RouteScorePolicy,
     width: int,
+    should_cancel: _ShouldCancel | None = None,
 ) -> list[tuple[int, ...]]:
     prefixes: list[tuple[int, tuple[int, ...], tuple[int, ...]]] = []
     for store_id in store_ids:
+        _check_cancelled(should_cancel)
         metric = travel.get(None, store_id)
         if metric is None:
             continue
@@ -670,9 +769,12 @@ def _beam_store_sequences(
     prefixes = prefixes[:width]
 
     while prefixes and prefixes[0][2]:
+        _check_cancelled(should_cancel)
         expanded: list[tuple[int, tuple[int, ...], tuple[int, ...]]] = []
         for score_units, prefix, remaining in prefixes:
+            _check_cancelled(should_cancel)
             for store_id in remaining:
+                _check_cancelled(should_cancel)
                 metric = travel.get(prefix[-1], store_id)
                 if metric is None:
                     continue
@@ -687,11 +789,13 @@ def _beam_store_sequences(
                         ),
                     )
                 )
+        _check_cancelled(should_cancel)
         expanded.sort(key=lambda item: (item[0], item[1]))
         prefixes = expanded[:width]
 
     complete: list[tuple[int, tuple[int, ...]]] = []
     for score_units, prefix, remaining in prefixes:
+        _check_cancelled(should_cancel)
         if remaining:
             continue
         metric = travel.get(prefix[-1], None)
@@ -708,23 +812,33 @@ def _store_sequence_plans(
     travel: DirectedTravelMatrix,
     policy: RouteScorePolicy,
     settings: SolverSettings,
+    should_cancel: _ShouldCancel | None = None,
 ) -> tuple[_RoutePlan, ...]:
     ordered_store_ids = tuple(sorted(store_ids))
+    _check_cancelled(should_cancel)
     sequences = _beam_store_sequences(
         ordered_store_ids,
         travel,
         policy,
         settings.sequence_beam_width,
+        should_cancel,
     )
-    exact_witness = _best_store_sequence(ordered_store_ids, travel, policy)
+    _check_cancelled(should_cancel)
+    exact_witness = _best_store_sequence(
+        ordered_store_ids, travel, policy, should_cancel
+    )
     if exact_witness is not None:
         sequences.append(exact_witness)
 
-    plans = {
-        sequence: plan
-        for sequence in dict.fromkeys(sequences)
-        if (plan := _measure_store_sequence(sequence, travel, policy)) is not None
-    }
+    plans: dict[tuple[int, ...], _RoutePlan] = {}
+    for sequence in dict.fromkeys(sequences):
+        _check_cancelled(should_cancel)
+        plan = _measure_store_sequence(
+            sequence, travel, policy, should_cancel
+        )
+        if plan is not None:
+            plans[sequence] = plan
+    _check_cancelled(should_cancel)
     return tuple(
         sorted(
             plans.values(),
@@ -740,7 +854,9 @@ def _build_candidate(
     products_by_id: dict[int, OptimizationProduct],
     product_ranks: dict[int, int],
     policy: RouteScorePolicy,
+    should_cancel: _ShouldCancel | None = None,
 ) -> _RankedCandidate:
+    _check_cancelled(should_cancel)
     selections = [
         RouteItemSelection(
             **item.model_dump(),
@@ -750,6 +866,7 @@ def _build_candidate(
             catalog.requested_items, state.assignments, strict=True
         )
     ]
+    _check_cancelled(should_cancel)
     products = [
         product_id
         for store_id in route_plan.store_sequence
@@ -765,17 +882,22 @@ def _build_candidate(
         route_plan.time_centi_minutes * policy.time_units_per_centi_minute
     )
     store_score_units = len(route_plan.store_sequence) * policy.store_score_units
+    modifier_penalty_units = (
+        state.modifier_miss_count * policy.modifier_miss_score_units
+    )
     score_units = (
         product_price_units
         + distance_score_units
         + time_score_units
         + store_score_units
+        + modifier_penalty_units
     )
     components = RouteScoreComponents(
         productPrice=float(_score_units_to_decimal(product_price_units)),
         distanceCost=float(_score_units_to_decimal(distance_score_units)),
         timeCost=float(_score_units_to_decimal(time_score_units)),
         storeCost=float(_score_units_to_decimal(store_score_units)),
+        modifierPenalty=float(_score_units_to_decimal(modifier_penalty_units)),
     )
     candidate = RouteCandidate(
         stores=list(route_plan.store_sequence),
@@ -805,36 +927,82 @@ def _build_candidate(
 def _rank_and_limit_candidates(
     candidates: list[_RankedCandidate],
     limit: int,
-    max_candidates_per_store_sequence: int,
+    should_cancel: _ShouldCancel | None = None,
 ) -> list[RouteCandidate]:
-    ordered = sorted(
-        candidates,
-        key=lambda item: (
+    _check_cancelled(should_cancel)
+    def best_overall_key(item: _RankedCandidate) -> tuple[object, ...]:
+        return (
             -item.candidate.matched_item_count,
             item.score_units,
             tuple(item.candidate.stores),
             item.assignment_ranks,
+        )
+
+    ordered = sorted(
+        candidates,
+        key=best_overall_key,
+    )
+    _check_cancelled(should_cancel)
+    if not ordered:
+        return []
+
+    best_matched_count = ordered[0].candidate.matched_item_count
+    witness_candidates = [
+        item
+        for item in ordered
+        if item.candidate.matched_item_count * PERCENT_SCALE
+        >= best_matched_count * WITNESS_COVERAGE_PERCENT
+    ]
+    cheapest = min(
+        witness_candidates,
+        key=lambda item: (
+            item.candidate.product_price,
+            item.candidate.distance,
+            best_overall_key(item),
         ),
     )
-    result: list[RouteCandidate] = []
-    sequence_counts: dict[tuple[int, ...], int] = {}
-    seen: set[tuple[tuple[int | None, ...], tuple[int, ...]]] = set()
+    shortest = min(
+        witness_candidates,
+        key=lambda item: (
+            item.candidate.distance,
+            item.candidate.product_price,
+            best_overall_key(item),
+        ),
+    )
+    if limit == 1:
+        return [
+            (cheapest if cheapest is shortest else ordered[0]).candidate
+        ]
+
+    representatives: dict[frozenset[int], _RankedCandidate] = {}
     for item in ordered:
-        assignment = tuple(
-            selection.product for selection in item.candidate.selections
+        _check_cancelled(should_cancel)
+        store_set = frozenset(item.candidate.stores)
+        representatives.setdefault(store_set, item)
+
+    cheapest_store_set = frozenset(cheapest.candidate.stores)
+    shortest_store_set = frozenset(shortest.candidate.stores)
+    representatives[cheapest_store_set] = cheapest
+    protected_store_sets = {cheapest_store_set, shortest_store_set}
+
+    if len(representatives) <= limit:
+        selected = set(representatives)
+    else:
+        selected = set(protected_store_sets)
+        for item in ordered:
+            _check_cancelled(should_cancel)
+            if len(selected) == limit:
+                break
+            selected.add(frozenset(item.candidate.stores))
+
+    return [
+        item.candidate
+        for item in ordered
+        if (
+            (store_set := frozenset(item.candidate.stores)) in selected
+            and representatives[store_set] is item
         )
-        sequence = tuple(item.candidate.stores)
-        identity = (assignment, sequence)
-        if identity in seen:
-            continue
-        seen.add(identity)
-        if sequence_counts.get(sequence, 0) >= max_candidates_per_store_sequence:
-            continue
-        sequence_counts[sequence] = sequence_counts.get(sequence, 0) + 1
-        result.append(item.candidate)
-        if len(result) == limit:
-            break
-    return result
+    ]
 
 
 def optimize_routes(
@@ -844,6 +1012,7 @@ def optimize_routes(
     limit: int = 10,
     policy: RouteScorePolicy | None = None,
     settings: SolverSettings | None = None,
+    should_cancel: _ShouldCancel | None = None,
 ) -> RouteOptimizationResponse:
     if not 1 <= limit <= 20:
         raise ValueError("limit must be between 1 and 20")
@@ -852,6 +1021,7 @@ def optimize_routes(
     catalog_store_ids = tuple(store.id for store in catalog.stores)
     if travel.store_ids != catalog_store_ids:
         raise ValueError("travel matrix store IDs must match the optimization catalog")
+    _check_cancelled(should_cancel)
 
     effective_policy = policy or RouteScorePolicy()
     effective_settings = settings or SolverSettings()
@@ -868,6 +1038,14 @@ def optimize_routes(
         for product in catalog.products
         for item_index in product.matching_item_indices
     }
+    edge_modifier_misses = {
+        (item_index, product.id): len(
+            set(catalog.requested_items[item_index].modifiers)
+            - set(product.modifiers)
+        )
+        for product in catalog.products
+        for item_index in product.matching_item_indices
+    }
     product_ranks = {
         product.id: rank
         for rank, product in enumerate(catalog.products, start=1)
@@ -877,10 +1055,13 @@ def optimize_routes(
         catalog,
         products_by_id,
         edge_price_cents,
+        edge_modifier_misses,
         effective_policy,
         effective_settings,
         deadline,
+        should_cancel,
     )
+    _check_cancelled(should_cancel)
     assignment_states.sort(
         key=lambda state: _assignment_state_key(
             state, effective_policy, product_ranks
@@ -889,6 +1070,7 @@ def optimize_routes(
     route_cache: dict[frozenset[int], tuple[_RoutePlan, ...]] = {}
     generated: list[_RankedCandidate] = []
     for state in assignment_states:
+        _check_cancelled(should_cancel)
         if not state.matched_count:
             continue
         if generated and monotonic() >= deadline:
@@ -901,31 +1083,35 @@ def optimize_routes(
                 travel,
                 effective_policy,
                 effective_settings,
+                should_cancel,
             )
             route_cache[state.store_ids] = plans
-        generated.extend(
-            _build_candidate(
+        for plan in plans:
+            generated.append(
+                _build_candidate(
                 state,
                 plan,
                 catalog,
                 products_by_id,
                 product_ranks,
                 effective_policy,
+                should_cancel,
             )
-            for plan in plans
-        )
+            )
 
     candidates = _rank_and_limit_candidates(
         generated,
         limit,
-        effective_settings.max_candidates_per_store_sequence,
+        should_cancel,
     )
+    _check_cancelled(should_cancel)
     if not candidates:
         if timed_out:
             raise OptimizationFailedError("optimization timed out without a solution")
         raise NoFeasibleRouteError("no selected product can form a round trip")
 
     elapsed = monotonic() - started_at
+    _check_cancelled(should_cancel)
     timed_out = timed_out or elapsed >= effective_settings.timeout_seconds
     return RouteOptimizationResponse(
         candidates=candidates,

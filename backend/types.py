@@ -137,6 +137,8 @@ class Product(ProductCreate):
 class StoreCreate(ApiModel):
     name: str
     address: str
+    latitude: Latitude | None = None
+    longitude: Longitude | None = None
 
     @field_validator("name")
     @classmethod
@@ -147,6 +149,12 @@ class StoreCreate(ApiModel):
     @classmethod
     def validate_address(cls, address: str) -> str:
         return _normalize_display_text(address, "address")
+
+    @model_validator(mode="after")
+    def validate_coordinates(self) -> Self:
+        if (self.latitude is None) != (self.longitude is None):
+            raise ValueError("latitude and longitude must be provided together")
+        return self
 
 
 class Store(StoreCreate):
@@ -159,11 +167,9 @@ class Store(StoreCreate):
         return list(_require_unique(products, "products"))
 
 
-class ShoppingListItemInput(ApiModel):
+class _ShoppingListItemBase(ApiModel):
     tag: str
     modifiers: list[str] = Field(default_factory=list)
-    unit: str | None = None
-    quantity: PositiveFiniteFloat | None = None
 
     @field_validator("tag")
     @classmethod
@@ -178,6 +184,11 @@ class ShoppingListItemInput(ApiModel):
         ]
         return sorted(_require_unique(normalized, "modifiers"))
 
+
+class ShoppingListItemInput(_ShoppingListItemBase):
+    unit: str | None = None
+    quantity: PositiveFiniteFloat | None = None
+
     @field_validator("unit")
     @classmethod
     def normalize_unit(cls, unit: str | None) -> str | None:
@@ -186,9 +197,14 @@ class ShoppingListItemInput(ApiModel):
         return _normalize_text(unit, "unit")
 
 
-class ShoppingListItem(ShoppingListItemInput):
+class ShoppingListItem(_ShoppingListItemBase):
     unit: str
     quantity: PositiveFiniteFloat
+
+    @field_validator("unit")
+    @classmethod
+    def normalize_unit(cls, unit: str) -> str:
+        return _normalize_text(unit, "unit")
 
 
 class ShoppingListItemsInput(ApiModel):
@@ -267,35 +283,19 @@ class ShoppingListNameUpdate(ApiModel):
         return _normalize_display_text(name, "name")
 
 
-class ShoppingListStatus(str, Enum):
-    PENDING = "PENDING"
-    COMPUTING = "COMPUTING"
-    READY = "READY"
-    FAILED = "FAILED"
+class ShoppingListActiveUpdate(ApiModel):
+    active: bool
 
 
 class ShoppingList(ShoppingListItems):
     id: PositiveInt
     name: str
     active: bool = True
-    routes: list[PositiveInt] = Field(default_factory=list)
-    status: ShoppingListStatus = ShoppingListStatus.PENDING
 
     @field_validator("name")
     @classmethod
     def validate_name(cls, name: str) -> str:
         return _normalize_display_text(name, "name")
-
-    @field_validator("routes")
-    @classmethod
-    def require_unique_routes(cls, routes: list[PositiveInt]) -> list[PositiveInt]:
-        return list(_require_unique(routes, "routes"))
-
-    @model_validator(mode="after")
-    def validate_routes_match_status(self) -> Self:
-        if self.routes and self.status != ShoppingListStatus.READY:
-            raise ValueError("routes may only be present when status is READY")
-        return self
 
 
 class RouteErrorCode(str, Enum):
@@ -368,6 +368,9 @@ class RouteScoreComponents(ApiModel):
     distance_cost: NonNegativeFiniteFloat = Field(alias="distanceCost")
     time_cost: NonNegativeFiniteFloat = Field(alias="timeCost")
     store_cost: NonNegativeFiniteFloat = Field(alias="storeCost")
+    modifier_penalty: NonNegativeFiniteFloat = Field(
+        default=0, alias="modifierPenalty"
+    )
 
     def total(self) -> Decimal:
         return sum(
@@ -378,10 +381,106 @@ class RouteScoreComponents(ApiModel):
                     self.distance_cost,
                     self.time_cost,
                     self.store_cost,
+                    self.modifier_penalty,
                 )
             ),
             start=Decimal(0),
         ).quantize(_SCORE_QUANTUM, rounding=ROUND_HALF_UP)
+
+
+class RouteStoreSummary(StoreCreate):
+    id: PositiveInt
+
+
+class RouteProductSummary(ApiModel):
+    id: PositiveInt
+    name: str
+    store: PositiveInt
+    unit: str
+    modifiers: list[str] = Field(default_factory=list)
+    selection_price: NonNegativeFiniteFloat = Field(alias="selectionPrice")
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, name: str) -> str:
+        return _normalize_display_text(name, "name")
+
+    @field_validator("unit")
+    @classmethod
+    def normalize_unit(cls, unit: str) -> str:
+        return _normalize_text(unit, "unit")
+
+    @field_validator("modifiers")
+    @classmethod
+    def normalize_modifiers(cls, modifiers: list[str]) -> list[str]:
+        normalized = [
+            _normalize_text(modifier, "modifier") for modifier in modifiers
+        ]
+        return sorted(_require_unique(normalized, "modifiers"))
+
+
+class RouteCandidateResult(RouteMetrics):
+    id: PositiveInt
+    stores: list[RouteStoreSummary]
+    products: list[RouteProductSummary]
+    selections: list[RouteItemSelection]
+    product_price: NonNegativeFiniteFloat = Field(alias="productPrice")
+    matched_item_count: PositiveInt = Field(alias="matchedItemCount")
+    score_components: RouteScoreComponents = Field(alias="scoreComponents")
+    error_code: RouteErrorCode | None = Field(default=None, alias="errorCode")
+
+    @model_validator(mode="after")
+    def validate_result_consistency(self) -> Self:
+        store_ids = [store.id for store in self.stores]
+        _require_unique(store_ids, "stores")
+        product_ids = [product.id for product in self.products]
+        _require_unique(product_ids, "products")
+        _require_unique([selection.tag for selection in self.selections], "selection tags")
+
+        matched_product_ids = [
+            selection.product
+            for selection in self.selections
+            if selection.product is not None
+        ]
+        _require_unique(matched_product_ids, "selected products")
+        if set(product_ids) != set(matched_product_ids):
+            raise ValueError("matched selections must match products")
+        if any(product.store not in store_ids for product in self.products):
+            raise ValueError("every product must reference a route store")
+        if self.matched_item_count != len(matched_product_ids):
+            raise ValueError("matchedItemCount must match selections")
+
+        expected_error = (
+            RouteErrorCode.PARTIAL_ITEM_MATCH
+            if len(matched_product_ids) != len(self.selections)
+            else None
+        )
+        if self.error_code != expected_error:
+            raise ValueError("errorCode must indicate whether item matching is partial")
+        if _quantize_score(self.product_price) != _quantize_score(
+            sum(product.selection_price for product in self.products)
+        ):
+            raise ValueError("productPrice must equal product selection prices")
+        if _quantize_score(self.product_price) != _quantize_score(
+            self.score_components.product_price
+        ):
+            raise ValueError("productPrice must match scoreComponents.productPrice")
+        if _quantize_score(self.score) != self.score_components.total():
+            raise ValueError("score must equal the sum of scoreComponents")
+        return self
+
+
+class RouteCandidatesResponse(ApiModel):
+    generation: NonNegativeInteger
+    candidates: Annotated[list[RouteCandidateResult], Field(max_length=20)]
+
+    @field_validator("candidates")
+    @classmethod
+    def require_unique_candidate_ids(
+        cls, candidates: list[RouteCandidateResult]
+    ) -> list[RouteCandidateResult]:
+        _require_unique([candidate.id for candidate in candidates], "candidate IDs")
+        return candidates
 
 
 class RouteCandidate(RouteMetrics):
@@ -448,7 +547,64 @@ class RouteOptimizationStatus(str, Enum):
 class RouteOptimizationErrorCode(str, Enum):
     NO_ELIGIBLE_PRODUCTS = "NO_ELIGIBLE_PRODUCTS"
     MATRIX_UNAVAILABLE = "MATRIX_UNAVAILABLE"
+    UNIT_CONVERSION_FAILED = "UNIT_CONVERSION_FAILED"
     OPTIMIZATION_FAILED = "OPTIMIZATION_FAILED"
+
+
+class RouteCalculationStatus(str, Enum):
+    IDLE = "IDLE"
+    RUNNING = "RUNNING"
+    SUCCEEDED = "SUCCEEDED"
+    FAILED = "FAILED"
+
+
+class RouteCalculationResponse(ApiModel):
+    generation: NonNegativeInteger = 0
+    status: RouteCalculationStatus = RouteCalculationStatus.IDLE
+    active_list_count: NonNegativeInteger = Field(0, alias="activeListCount")
+    item_count: NonNegativeInteger = Field(0, alias="itemCount")
+    result_count: NonNegativeInteger = Field(0, alias="resultCount")
+    optimizer_status: RouteOptimizationStatus | None = Field(
+        default=None, alias="optimizerStatus"
+    )
+    started_at: NonNegativeFiniteFloat | None = Field(default=None, alias="startedAt")
+    completed_at: NonNegativeFiniteFloat | None = Field(
+        default=None, alias="completedAt"
+    )
+    elapsed_seconds: NonNegativeFiniteFloat | None = Field(
+        default=None, alias="elapsedSeconds"
+    )
+    timeout_seconds: PositiveFiniteFloat | None = Field(
+        default=None, alias="timeoutSeconds"
+    )
+    error_code: RouteOptimizationErrorCode | None = Field(
+        default=None, alias="errorCode"
+    )
+    detail: str | None = None
+
+    @model_validator(mode="after")
+    def validate_state(self) -> Self:
+        if self.status == RouteCalculationStatus.IDLE:
+            if self.generation != 0 or any((self.started_at, self.completed_at)):
+                raise ValueError("IDLE calculations must be generation zero")
+        elif self.generation == 0 or self.started_at is None:
+            raise ValueError("non-IDLE calculations require a generation and startedAt")
+
+        if self.status == RouteCalculationStatus.RUNNING:
+            if self.completed_at is not None:
+                raise ValueError("RUNNING calculations cannot have completedAt")
+        elif self.status in (
+            RouteCalculationStatus.SUCCEEDED,
+            RouteCalculationStatus.FAILED,
+        ) and self.completed_at is None:
+            raise ValueError("terminal calculations require completedAt")
+
+        if self.status == RouteCalculationStatus.FAILED:
+            if self.error_code is None or not self.detail:
+                raise ValueError("FAILED calculations require errorCode and detail")
+        elif self.error_code is not None or self.detail is not None:
+            raise ValueError("only FAILED calculations may contain an error")
+        return self
 
 
 class RouteOptimizationResponse(ApiModel):

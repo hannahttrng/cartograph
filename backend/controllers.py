@@ -1,33 +1,24 @@
 """HTTP controllers for the cartograph API."""
 
-import asyncio
-import logging
 import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
 
-from arcgis.geometry import Point
 from fastapi import APIRouter, HTTPException, Request, Response, status
 
 from backend.resolvers import (
     connect_database,
     create_shopping_list,
     delete_shopping_list,
+    get_route_candidates,
     get_shopping_list,
     list_tag_modifiers,
     list_tags,
     list_shopping_lists,
-    load_optimization_catalog,
     replace_shopping_list,
     UnknownShoppingListTagError,
+    update_shopping_list_active,
     update_shopping_list_name,
-)
-from backend.route_optimizer import (
-    DirectedTravelMatrix,
-    NoEligibleProductsError,
-    NoFeasibleRouteError,
-    OptimizationFailedError,
-    optimize_routes,
 )
 from backend.recipe_import import (
     RecipeImportProviderError,
@@ -40,10 +31,10 @@ from backend.types import (
     AssistantRecipeImportRequest,
     AssistantRecipeImportResponse,
     HealthResponse,
-    RouteOptimizationErrorCode,
-    RouteOptimizationRequest,
-    RouteOptimizationResponse,
+    RouteCalculationResponse,
+    RouteCandidatesResponse,
     ShoppingList,
+    ShoppingListActiveUpdate,
     ShoppingListCreate,
     ShoppingListNameUpdate,
     ShoppingListReplace,
@@ -52,20 +43,6 @@ from backend.types import (
 
 
 router = APIRouter(prefix="/api/v1")
-logger = logging.getLogger(__name__)
-
-
-class RouteOptimizationHttpError(Exception):
-    def __init__(
-        self,
-        status_code: int,
-        detail: str,
-        error_code: RouteOptimizationErrorCode,
-    ) -> None:
-        super().__init__(detail)
-        self.status_code = status_code
-        self.detail = detail
-        self.error_code = error_code
 
 
 @contextmanager
@@ -83,12 +60,6 @@ def _shopping_list_not_found() -> HTTPException:
 
 def _tag_not_found() -> HTTPException:
     return HTTPException(status_code=404, detail="Tag not found")
-
-
-def _optimization_error(
-    status_code: int, detail: str, error_code: RouteOptimizationErrorCode
-) -> RouteOptimizationHttpError:
-    return RouteOptimizationHttpError(status_code, detail, error_code)
 
 
 @router.post(
@@ -170,17 +141,20 @@ def get_tag_modifiers(request: Request, tag_id: str) -> list[str]:
     status_code=status.HTTP_201_CREATED,
     tags=["shopping lists"],
 )
-def post_shopping_list(
+async def post_shopping_list(
     request: Request, payload: ShoppingListCreate
 ) -> ShoppingList:
     with _request_database(request) as connection:
         try:
-            return create_shopping_list(connection, payload)
+            shopping_list = create_shopping_list(connection, payload)
         except UnknownShoppingListTagError as error:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=str(error),
             ) from error
+    if shopping_list.active:
+        await request.app.state.route_calculation_manager.request_recalculation()
+    return shopping_list
 
 
 @router.get(
@@ -213,14 +187,14 @@ def get_shopping_list_by_id(
     response_model=ShoppingList,
     tags=["shopping lists"],
 )
-def put_shopping_list(
+async def put_shopping_list(
     request: Request,
     shopping_list_id: int,
     payload: ShoppingListReplace,
 ) -> ShoppingList:
     with _request_database(request) as connection:
         try:
-            shopping_list = replace_shopping_list(
+            mutation = replace_shopping_list(
                 connection, shopping_list_id, payload
             )
         except UnknownShoppingListTagError as error:
@@ -228,9 +202,11 @@ def put_shopping_list(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=str(error),
             ) from error
-    if shopping_list is None:
+    if mutation is None:
         raise _shopping_list_not_found()
-    return shopping_list
+    if mutation.route_calculation_required:
+        await request.app.state.route_calculation_manager.request_recalculation()
+    return mutation.shopping_list
 
 
 @router.patch(
@@ -252,112 +228,54 @@ def patch_shopping_list_name(
     return shopping_list
 
 
-@router.post(
-    "/shopping-lists/{shopping_list_id}/route-candidates",
-    response_model=RouteOptimizationResponse,
+@router.patch(
+    "/shopping-lists/{shopping_list_id}/active",
+    response_model=ShoppingList,
     tags=["shopping lists"],
 )
-async def post_shopping_list_route_candidates(
+async def patch_shopping_list_active(
     request: Request,
     shopping_list_id: int,
-    payload: RouteOptimizationRequest,
-) -> RouteOptimizationResponse:
+    payload: ShoppingListActiveUpdate,
+) -> ShoppingList:
     with _request_database(request) as connection:
-        shopping_list = get_shopping_list(connection, shopping_list_id)
-        if shopping_list is None:
-            raise _shopping_list_not_found()
-        if not shopping_list.items:
-            raise _optimization_error(
-                status.HTTP_422_UNPROCESSABLE_CONTENT,
-                "Shopping list has no items",
-                RouteOptimizationErrorCode.NO_ELIGIBLE_PRODUCTS,
-            )
-        try:
-            catalog = load_optimization_catalog(
-                connection, shopping_list.items
-            )
-        except ValueError as error:
-            raise _optimization_error(
-                status.HTTP_422_UNPROCESSABLE_CONTENT,
-                str(error),
-                RouteOptimizationErrorCode.OPTIMIZATION_FAILED,
-            ) from error
-
-    if not catalog.products:
-        raise _optimization_error(
-            status.HTTP_422_UNPROCESSABLE_CONTENT,
-            "No requested item has an eligible current-price product",
-            RouteOptimizationErrorCode.NO_ELIGIBLE_PRODUCTS,
+        mutation = update_shopping_list_active(
+            connection, shopping_list_id, payload
         )
+    if mutation is None:
+        raise _shopping_list_not_found()
+    if mutation.route_calculation_required:
+        await request.app.state.route_calculation_manager.request_recalculation()
+    return mutation.shopping_list
 
-    provider = request.app.state.travel_matrix_provider
-    if provider is None:
-        raise _optimization_error(
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-            "Travel matrix provider is unavailable",
-            RouteOptimizationErrorCode.MATRIX_UNAVAILABLE,
-        )
 
-    current_location = Point(
-        {
-            "x": payload.longitude,
-            "y": payload.latitude,
-            "spatialReference": {"wkid": 4326},
-        }
-    )
-    try:
-        matrices = await provider.get_route_travel_matrices(
-            current_location, catalog.stores
-        )
-        travel = DirectedTravelMatrix.compose(matrices)
-    except Exception as error:
-        logger.exception(
-            "route matrix unavailable for shopping_list_id=%s stores=%s",
-            shopping_list_id,
-            len(catalog.stores),
-        )
-        raise _optimization_error(
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-            "Travel matrix could not be loaded or regenerated",
-            RouteOptimizationErrorCode.MATRIX_UNAVAILABLE,
-        ) from error
+@router.get(
+    "/route-calculation",
+    response_model=RouteCalculationResponse,
+    tags=["routes"],
+)
+def get_route_calculation_status(request: Request) -> RouteCalculationResponse:
+    return request.app.state.route_calculation_manager.get_status()
 
-    try:
-        result = await asyncio.to_thread(
-            optimize_routes,
-            catalog,
-            travel,
-            limit=payload.limit,
-            policy=request.app.state.route_score_policy,
-            settings=request.app.state.solver_settings,
-        )
-    except NoEligibleProductsError as error:
-        raise _optimization_error(
-            status.HTTP_422_UNPROCESSABLE_CONTENT,
-            str(error),
-            RouteOptimizationErrorCode.NO_ELIGIBLE_PRODUCTS,
-        ) from error
-    except (NoFeasibleRouteError, OptimizationFailedError, ValueError) as error:
-        raise _optimization_error(
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-            str(error),
-            RouteOptimizationErrorCode.OPTIMIZATION_FAILED,
-        ) from error
 
-    logger.info(
-        "optimized shopping_list_id=%s items=%s stores=%s products=%s "
-        "requested=%s returned=%s status=%s proven_prefix=%s elapsed=%.3f",
-        shopping_list_id,
-        len(catalog.requested_items),
-        len(catalog.stores),
-        len(catalog.products),
-        payload.limit,
-        len(result.candidates),
-        result.status.value,
-        result.proven_prefix_count,
-        result.elapsed_seconds,
-    )
-    return result
+@router.post(
+    "/route-calculation",
+    response_model=RouteCalculationResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    tags=["routes"],
+)
+async def post_route_calculation(request: Request) -> RouteCalculationResponse:
+    return await request.app.state.route_calculation_manager.request_recalculation()
+
+
+@router.get(
+    "/route-candidates",
+    response_model=RouteCandidatesResponse,
+    tags=["routes"],
+)
+def get_global_route_candidates(request: Request) -> RouteCandidatesResponse:
+    with _request_database(request) as connection:
+        return get_route_candidates(connection)
 
 
 @router.delete(
@@ -365,9 +283,11 @@ async def post_shopping_list_route_candidates(
     status_code=status.HTTP_204_NO_CONTENT,
     tags=["shopping lists"],
 )
-def remove_shopping_list(request: Request, shopping_list_id: int) -> Response:
+async def remove_shopping_list(request: Request, shopping_list_id: int) -> Response:
     with _request_database(request) as connection:
         deleted = delete_shopping_list(connection, shopping_list_id)
     if not deleted:
         raise _shopping_list_not_found()
+    if deleted.active:
+        await request.app.state.route_calculation_manager.request_recalculation()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

@@ -1,9 +1,20 @@
+import asyncio
 from collections import Counter
 from datetime import date, datetime, timezone
+from random import Random
+from statistics import mean, pstdev
 
 import pytest
 
-from backend.resolvers import connect_database, initialize_database, transaction
+from backend.demo_travel_matrix import DemoTravelMatrixProvider
+from backend.resolvers import (
+    connect_database,
+    initialize_database,
+    load_optimization_catalog,
+    transaction,
+)
+from backend.route_calculation import FIXED_REDLANDS_ORIGIN
+from backend.route_optimizer import DirectedTravelMatrix, optimize_routes
 from backend.tools import grocery_prices
 from backend.tools.grocery_prices import IN_SEASON_MODIFIER
 from backend.tools.seed import (
@@ -14,6 +25,7 @@ from backend.tools.seed import (
     WEEKS_OF_HISTORY,
     SeedDataExistsError,
     _clear_domain_data,
+    _sale_discount,
     build_parser,
     generate_modifiers,
     generate_price_history,
@@ -22,7 +34,7 @@ from backend.tools.seed import (
     seed_database,
     specialty_store_indices,
 )
-from backend.types import Price
+from backend.types import Price, ShoppingListItem
 
 
 EXPECTED_MULTIWORD_TAGS = {
@@ -43,29 +55,37 @@ EXPECTED_MULTIWORD_TAGS = {
 
 def test_catalog_has_balanced_product_availability() -> None:
     assert len(STORES) == 12
-    assert len(UNIVERSAL_PRODUCTS) == 21
-    assert len(SPECIALTY_PRODUCTS) == 60
+    assert len(UNIVERSAL_PRODUCTS) == 10
+    assert len(SPECIALTY_PRODUCTS) == 180
     assert [
         len(products_for_store(store_index)) for store_index in range(len(STORES))
-    ] == [40, 39, 38, 37, 36, 36, 36, 36, 37, 38, 39, 40]
+    ] == [60] * len(STORES)
     assert [
         len(products_for_store(store_index)) - len(UNIVERSAL_PRODUCTS)
         for store_index in range(len(STORES))
-    ] == [19, 18, 17, 16, 15, 15, 15, 15, 16, 17, 18, 19]
+    ] == [50] * len(STORES)
 
-    coverage = [
+    coverage = Counter(
         len(specialty_store_indices(product_index))
         for product_index in range(len(SPECIALTY_PRODUCTS))
-    ]
-    assert set(coverage) == {1, 2, 3, 4, 5}
-    assert all(1 <= store_count <= 5 for store_count in coverage)
+    )
+    assert coverage == Counter({1: 30, 2: 30, 3: 30, 4: 30, 5: 60})
+    assert sum(store_count * count for store_count, count in coverage.items()) == 600
+
+    products = UNIVERSAL_PRODUCTS + SPECIALTY_PRODUCTS
+    assert len({product.name for product in products}) == len(products) == 190
+    assert all(
+        len(set(specialty_store_indices(product_index)))
+        == len(specialty_store_indices(product_index))
+        for product_index in range(len(SPECIALTY_PRODUCTS))
+    )
 
     tags = {
         tag
         for product in UNIVERSAL_PRODUCTS + SPECIALTY_PRODUCTS
         for tag in product.tag_names
     }
-    assert {tag for tag in tags if " " in tag} == EXPECTED_MULTIWORD_TAGS
+    assert EXPECTED_MULTIWORD_TAGS <= {tag for tag in tags if " " in tag}
 
 
 def test_tag_catalog_covers_memberships_with_shopping_defaults() -> None:
@@ -76,22 +96,30 @@ def test_tag_catalog_covers_memberships_with_shopping_defaults() -> None:
         for tag in product.tag_names
     }
 
-    assert len(TAGS) == len(catalog) == 140
+    assert len(TAGS) == len(catalog) == len(tag_names)
     assert set(catalog) == tag_names
     assert all(tag.default_unit == tag.default_unit.strip().lower() for tag in TAGS)
     assert all(tag.default_quantity > 0 for tag in TAGS)
     assert (catalog["egg"].default_unit, catalog["egg"].default_quantity) == (
         "count",
-        6,
+        12,
     )
     assert (
         catalog["corn tortilla"].default_unit,
         catalog["corn tortilla"].default_quantity,
-    ) == ("count", 12)
+    ) == ("count", 18)
     assert (
         catalog["bottled water"].default_unit,
         catalog["bottled water"].default_quantity,
-    ) == ("count", 6)
+    ) == ("count", 12)
+    assert (catalog["banana"].default_unit, catalog["banana"].default_quantity) == (
+        "lbs",
+        2,
+    )
+    assert (
+        catalog["ground beef"].default_unit,
+        catalog["ground beef"].default_quantity,
+    ) == ("lbs", 1.5)
 
 
 def test_honeycrisp_apples_match_the_product_spec() -> None:
@@ -180,7 +208,9 @@ def test_product_modifiers_vary_deterministically_between_stores() -> None:
 
         expected_brand_count = 3 if product.name in three_brand_products else 2
         assert len(configured_brands) == expected_brand_count
-        assert realized_brands == configured_brands
+        assert realized_brands <= configured_brands
+        if len(available_store_indices) == len(STORES):
+            assert realized_brands == configured_brands
         assert modifiers_by_store == [
             generate_modifiers(
                 product,
@@ -238,19 +268,6 @@ def test_price_history_is_deterministic_and_seasonal() -> None:
     assert len(history) == WEEKS_OF_HISTORY * 2
     assert all(entry.quantity == 1.0 for entry in history)
     assert {entry.sale for entry in history} == {False, True}
-    assert [(entry.price, entry.sale) for entry in history[:10]] == [
-        (1.89, False),
-        (1.68, False),
-        (1.68, False),
-        (1.67, False),
-        (1.69, False),
-        (1.69, False),
-        (1.49, True),
-        (1.71, False),
-        (1.70, False),
-        (1.71, False),
-    ]
-    assert sum(entry.sale for entry in history) == 13
 
     october_prices = [
         entry.price
@@ -265,14 +282,40 @@ def test_price_history_is_deterministic_and_seasonal() -> None:
     assert sum(october_prices) / len(october_prices) < sum(april_prices) / len(april_prices)
 
 
-def test_prices_vary_between_stores() -> None:
-    apples = UNIVERSAL_PRODUCTS[0]
-    first_store = generate_price_history(apples, 0, date(2026, 7, 24))
-    second_store = generate_price_history(apples, 1, date(2026, 7, 24))
-
-    assert [entry.price for entry in first_store] != [
-        entry.price for entry in second_store
+def test_price_variance_and_sale_behavior_match_the_seed_profile() -> None:
+    milk = next(
+        product for product in UNIVERSAL_PRODUCTS if product.name == "Whole Milk"
+    )
+    histories = [
+        generate_price_history(milk, store_index, date(2026, 7, 24))
+        for store_index in range(len(STORES))
     ]
+    regular_means = [
+        mean(entry.price for entry in history if not entry.sale)
+        for history in histories
+    ]
+    between_store_spread = max(regular_means) / min(regular_means) - 1
+    target_regular_prices = [
+        entry.price for entry in histories[4] if not entry.sale
+    ]
+    target_coefficient_of_variation = (
+        pstdev(target_regular_prices) / mean(target_regular_prices)
+    )
+
+    observations = [
+        entry
+        for product in UNIVERSAL_PRODUCTS
+        for store_index in range(len(STORES))
+        for entry in generate_price_history(product, store_index, date(2026, 7, 24))
+    ]
+    sale_rate = sum(entry.sale for entry in observations) / len(observations)
+    discounts = [_sale_discount(Random(seed), True) for seed in range(100)]
+
+    assert 0.20 <= between_store_spread <= 0.60
+    assert 0.02 <= target_coefficient_of_variation <= 0.08
+    assert 0.03 <= sale_rate <= 0.04
+    assert all(0.15 <= discount <= 0.30 for discount in discounts)
+    assert _sale_discount(Random(0), False) == 0
 
 
 def test_seed_database_writes_expected_rows_and_relationships(
@@ -295,6 +338,19 @@ def test_seed_database_writes_expected_rows_and_relationships(
         for store_index in range(len(STORES))
         for product in products_for_store(store_index)
     )
+    expected_seasonal_product_ids = [
+        product_id
+        for product_id, product in enumerate(
+            (
+                product
+                for store_index in range(len(STORES))
+                for product in products_for_store(store_index)
+            ),
+            start=1,
+        )
+        if product.seasonal_low_month is not None
+        and product.seasonal_amplitude > 0
+    ]
     modifier_price = Price(date=1, price=1, quantity=1, sale=False)
     expected_brand_counts = Counter(
         (product.name, modifier)
@@ -338,7 +394,7 @@ def test_seed_database_writes_expected_rows_and_relationships(
     assert stats.tags == len(TAGS)
     assert stats.products == expected_product_count
     assert stats.price_histories == expected_price_history_count
-    assert classified_product_ids == list(range(1, expected_product_count + 1))
+    assert classified_product_ids == expected_seasonal_product_ids
 
     connection = connect_database(database_path)
     try:
@@ -554,7 +610,7 @@ def test_seed_database_writes_expected_rows_and_relationships(
     assert {
         "origin: washington",
         "origin: chile",
-        "brand: lays",
+        "brand: barilla",
         "in season",
         "on sale",
     } <= distinct_modifiers
@@ -570,19 +626,29 @@ def test_seed_database_writes_expected_rows_and_relationships(
     assert {
         row["tag"]: (row["default_unit"], row["default_quantity"])
         for row in tag_rows
-        if row["tag"] in {"egg", "corn tortilla", "bottled water"}
+        if row["tag"] in {
+            "banana",
+            "bottled water",
+            "corn tortilla",
+            "egg",
+            "ground beef",
+        }
     } == {
-        "egg": ("count", 6.0),
-        "corn tortilla": ("count", 12.0),
-        "bottled water": ("count", 6.0),
+        "banana": ("lbs", 2.0),
+        "bottled water": ("count", 12.0),
+        "corn tortilla": ("count", 18.0),
+        "egg": ("count", 12.0),
+        "ground beef": ("lbs", 1.5),
     }
     assert histories_per_product == {311}
     assert set(honeycrisp_tags) == {"honeycrisp apple", "apple", "fruit"}
     assert set(ground_beef_tags) == {"ground beef", "beef", "meat", "protein"}
     assert set(universal_store_counts.values()) == {len(STORES)}
     assert len(universal_store_counts) == len(UNIVERSAL_PRODUCTS)
-    assert len(specialty_store_counts) == 60
-    assert set(specialty_store_counts) == {1, 2, 3, 4, 5}
+    assert len(specialty_store_counts) == 180
+    assert Counter(specialty_store_counts) == Counter(
+        {1: 30, 2: 30, 3: 30, 4: 30, 5: 60}
+    )
     assert missing_current_prices == 0
     assert datetime.fromtimestamp(latest_observation, timezone.utc).date() == date(
         2026, 7, 23
@@ -617,6 +683,40 @@ def test_seed_database_writes_expected_rows_and_relationships(
         "current_price_quantity": expected_honeycrisp_history[-1].quantity,
         "current_price_sale": int(expected_honeycrisp_history[-1].sale),
     }
+
+    defaults = {tag.tag: tag for tag in TAGS}
+    requested_items = tuple(
+        ShoppingListItem(
+            tag=tag_name,
+            unit=defaults[tag_name].default_unit,
+            quantity=defaults[tag_name].default_quantity,
+        )
+        for tag_name in ("milk", "egg", "bread", "banana", "chicken")
+    )
+    connection = connect_database(database_path)
+    try:
+        optimization_catalog = load_optimization_catalog(
+            connection,
+            requested_items,
+        )
+    finally:
+        connection.close()
+    matrices = asyncio.run(
+        DemoTravelMatrixProvider().get_route_travel_matrices(
+            FIXED_REDLANDS_ORIGIN,
+            optimization_catalog.stores,
+        )
+    )
+    optimized = optimize_routes(
+        optimization_catalog,
+        DirectedTravelMatrix.compose(matrices),
+        limit=3,
+    )
+
+    assert len(optimization_catalog.stores) == len(STORES) == 12
+    assert len(optimization_catalog.products) >= len(STORES) * len(requested_items)
+    assert len(optimized.candidates) == 3
+    assert optimized.candidates[0].matched_item_count == len(requested_items)
 
     with pytest.raises(SeedDataExistsError):
         seed_database(database_path, as_of=date(2026, 7, 24), seed=1234)

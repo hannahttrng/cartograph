@@ -1,12 +1,12 @@
 # Eric Agent: Backend Integration Handoff
 
-This document is the backend integration guide for the Cartograph demo frontend. The refactor intentionally keeps demo data and UI components outside the existing backend client and Route Results implementation so backend work can be merged with minimal conflict.
+This document is the backend integration guide for the Cartograph demo frontend. ShoppingList Active state and global persisted Route candidates are now integrated; remaining mock boundaries cover auth, nearby Stores/deals, and the separate map prototype.
 
 ## 1. Ownership And Merge Boundaries
 
 Eric owns backend contracts, shopping-list persistence, route optimization, route candidate responses, and data services. The frontend should adapt to those contracts.
 
-Do not replace or redesign Eric's route endpoint, optimizer models, `backend/queries.ts`, `frontend/src/api/routes.ts`, or `frontend/src/screens/RoutePreviewScreen.tsx` during mock replacement. The new `RouteSummaryAccordion` is intentionally unconnected and can be adopted later.
+Treat the global route-calculation/candidate contracts, runtime parsers, and `RoutesScreen` generation checks as one boundary. Update backend models, `backend/queries.ts`, frontend API types/parsers, mocks, and route tests together.
 
 Hannah owns screen state, navigation, loading/error states, mock switching, and presentation components. Lynette's Figma remains the visual source of truth.
 
@@ -18,7 +18,6 @@ The new integration-friendly files are:
 - `frontend/src/mock/mockUser.ts`: authenticated-user and current-location placeholder.
 - `frontend/src/mock/mockStores.ts`: nearby-store and deal placeholders.
 - `frontend/src/mock/mockLists.ts`: structured shopping-list placeholders.
-- `frontend/src/mock/mockRoutes.ts`: isolated route-summary placeholder; not connected to Route Results.
 - `frontend/src/services/auth/AuthService.ts`: mock login/register/logout interface.
 - `frontend/src/components/map/MapPreview.tsx`: display-only map preview using location and store props.
 - `frontend/src/components/store/StoreCard.tsx`: display-only store summary.
@@ -32,8 +31,7 @@ The existing Axios API layer remains the preferred home for live requests. Keep 
 | --- | --- | --- |
 | `mockUser` | Authenticated profile plus current-location source | Home greeting and map preview |
 | `mockStores` | Nearby stores/deals endpoint or composed service response | Home map, Nearby Stores, Nearby Deals |
-| `mockLists` | Shopping-list list/detail endpoint | Home recent activity only; Saved Lists already use backend CRUD and device-local organization metadata |
-| `mockRoutes` | Optimized route candidate response | No current consumer; coordinate adoption before connecting |
+| `mockLists` | Shopping-list list/detail endpoint | Home recent activity only; Saved Lists already use backend CRUD and Active state |
 | `AuthService` mock | Backend authentication endpoints and secure session/token storage | Login and Register |
 
 Replace imports at the screen/service boundary. Do not push request logic into `StoreCard`, `StoreAccordion`, `MapPreview`, `ListIcon`, or `GreetingHeader`.
@@ -58,13 +56,7 @@ The current backend `Store` shape already supplies name, address, latitude, and 
 
 ### Shopping Lists
 
-The demo list model includes structured `quantity` and `unit`, but current route navigation still sends only product names:
-
-```ts
-items.map((item) => item.name)
-```
-
-`SavedShoppingListItem.quantity`, `unit`, and `checked` are optional for backward-compatible AsyncStorage hydration. A backend migration does not need to happen before the UI can read older records.
+Saved Lists and Build a List use backend `ShoppingListResponse` values with structured items and Active state. Device-local favorites, archives, collections, and legacy ShoppingList metadata hydration have been removed.
 
 ## 5. Authentication Integration
 
@@ -97,17 +89,13 @@ The current preview marker positions are illustrative. When live coordinates are
 
 Do not make map availability block store lists. Nearby Stores and Nearby Deals already render useful distance, savings, address, and deal information without ArcGIS.
 
-## 7. Route Results Protection
+## 7. Global Route Results Protection
 
-The frontend refactor does not connect `mockRoutes` or `RouteSummaryAccordion` to Route Results. Eric can continue changing route calculation and candidate rendering independently.
-
-Before adopting the summary accordion:
-
-1. Confirm the final candidate response and score semantics.
-2. Add an adapter from the backend route candidate to `DemoRouteSummary`, or replace that demo type with the accepted API type.
-3. Preserve existing navigation params until all callers migrate together.
-4. Validate loading, partial-match, timeout, and API-error states.
-5. Remove `mockRoutes` only after the live path has an offline fallback.
+`RoutesScreen` consumes parsed `RouteCalculationResponse` and enriched
+`RouteCandidatesResponse` values directly. Preserve server rank, generation
+equality checks, polling only while work is current, partial-match rendering,
+and explicit loading/failed/retry/empty states. The separate ArcGIS map demo is
+not a fallback for persisted candidates.
 
 ## 8. TODO(ERIC) Inventory
 
@@ -116,7 +104,6 @@ The explicit integration markers are:
 - `frontend/src/mock/mockUser.ts`: authenticated profile and location.
 - `frontend/src/mock/mockStores.ts`: nearby stores and deals.
 - `frontend/src/mock/mockLists.ts`: shopping lists.
-- `frontend/src/mock/mockRoutes.ts`: optimized route candidates.
 - `frontend/src/components/map/MapPreview.tsx`: real location and store coordinates.
 - `frontend/src/services/auth/AuthService.ts`: live authentication and session persistence.
 
@@ -129,8 +116,8 @@ Resolve a marker only when its live implementation, error handling, loading beha
 3. Add a profile/location hook that returns the `DemoUser`-compatible view model.
 4. Add a nearby-store adapter that enriches backend stores with distance/deal display fields.
 5. Switch Home, Nearby Stores, and Nearby Deals through a mock-or-live service selector.
-6. Keep backend ShoppingLists authoritative and restrict device-local persistence to favorites, archive state, and collections.
-7. Integrate Route Results separately after Eric's candidate contract is stable.
+6. Keep backend ShoppingLists authoritative for names, items, and Active state.
+7. Preserve the integrated global Routes contract while replacing unrelated mocks.
 8. Remove individual mocks only after live and failure-path testing succeeds.
 
 Keeping each integration step narrow avoids shared edits to screens and route code in one merge.
@@ -154,6 +141,6 @@ Before demo handoff, verify:
 - Nearby Stores and Map remain useful without live ArcGIS.
 - Saved Lists display distinct icons and aligned disclosure arrows.
 - Build a List checkboxes, quantities, units, saving, and route navigation work.
-- Route Results still consumes its existing item payload and API path.
+- Routes polls global calculation status and fetches only matching-generation candidates.
 - Turning the backend off leaves the configured mock demo path functional.
 - No backend file or route contract is changed solely to satisfy frontend presentation.

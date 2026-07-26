@@ -7,13 +7,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from fastapi import FastAPI
-from fastapi.responses import JSONResponse
-
-from backend.controllers import RouteOptimizationHttpError, router
+from backend.controllers import router
+from backend.demo_travel_matrix import DemoTravelMatrixProvider
 from backend.recipe_import import AzureOpenAIRecipeProvider, RecipeImportProvider
+from backend.route_calculation import RouteCalculationManager
 from backend.resolvers import initialize_database
 from backend.route_optimizer import RouteScorePolicy, SolverSettings
-from backend.types import ApiError
 
 if TYPE_CHECKING:
     from backend.arcgis_connector import TravelMatrixProvider
@@ -37,32 +36,31 @@ def create_app(
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:
         initialize_database(resolved_path)
         application.state.database_path = resolved_path
-        application.state.travel_matrix_provider = travel_matrix_provider
+        application.state.travel_matrix_provider = (
+            travel_matrix_provider or DemoTravelMatrixProvider()
+        )
         application.state.route_score_policy = route_score_policy or RouteScorePolicy()
         application.state.solver_settings = solver_settings or SolverSettings()
+        application.state.route_calculation_manager = RouteCalculationManager(
+            resolved_path,
+            application.state.travel_matrix_provider,
+            application.state.route_score_policy,
+            application.state.solver_settings,
+        )
         application.state.recipe_import_provider = (
             recipe_import_provider or AzureOpenAIRecipeProvider.from_environment()
         )
-        yield
+        await application.state.route_calculation_manager.recover()
+        try:
+            yield
+        finally:
+            await application.state.route_calculation_manager.shutdown()
 
     application = FastAPI(
         title="Cartograph API",
         version="0.1.0",
         lifespan=lifespan,
     )
-
-    @application.exception_handler(RouteOptimizationHttpError)
-    async def handle_route_optimization_error(
-        _request: object, error: RouteOptimizationHttpError
-    ) -> JSONResponse:
-        payload = ApiError(
-            detail=error.detail,
-            errorCode=error.error_code.value,
-        )
-        return JSONResponse(
-            status_code=error.status_code,
-            content=payload.model_dump(by_alias=True),
-        )
 
     application.include_router(router)
     return application

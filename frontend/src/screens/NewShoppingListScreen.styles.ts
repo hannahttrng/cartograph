@@ -241,93 +241,56 @@ export const styles = StyleSheet.create({
     fontFamily: 'Monda_700Bold',
     fontSize: 11,
   },
-  organizeCard: {
+  activeCard: {
+    alignItems: 'center',
     backgroundColor: '#FFFFFF',
     borderColor: '#D1CFD0',
     borderRadius: 6,
     borderWidth: 1,
+    flexDirection: 'row',
     marginTop: 13,
     padding: 12,
   },
-  organizeTitle: {
+  activeCopy: {
+    flex: 1,
+    marginRight: 12,
+  },
+  activeTitle: {
     color: '#262224',
     fontFamily: 'Monda_700Bold',
     fontSize: 12,
   },
-  collectionRow: {
-    flexDirection: 'row',
-    gap: 6,
-    paddingVertical: 10,
-  },
-  collectionChip: {
-    borderColor: '#BFCABF',
-    borderRadius: 6,
-    borderWidth: 1,
-    minHeight: 32,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-  },
-  collectionChipSelected: {
-    backgroundColor: '#DFF0DD',
-    borderColor: '#258043',
-  },
-  collectionChipText: {
+  activeDescription: {
     color: '#615D5F',
     fontFamily: 'Monda_400Regular',
     fontSize: 10,
+    marginTop: 2,
   },
-  collectionChipTextSelected: {
-    color: '#258043',
-    fontFamily: 'Monda_700Bold',
-  },
-  collectionInputRow: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  collectionInput: {
-    borderColor: '#D1CFD0',
-    borderRadius: 6,
-    borderWidth: 1,
-    color: '#262224',
-    flex: 1,
-    fontFamily: 'Monda_400Regular',
-    fontSize: 11,
-    minHeight: 38,
-    paddingHorizontal: 10,
-  },
-  collectionAddButton: {
-    alignItems: 'center',
-    backgroundColor: '#DFF0DD',
-    borderRadius: 6,
+  activeSwitch: {
+    backgroundColor: '#A6A3A4',
+    borderRadius: 14,
+    height: 28,
     justifyContent: 'center',
-    minHeight: 38,
-    paddingHorizontal: 14,
+    padding: 2,
+    width: 48,
   },
-  collectionAddText: {
-    color: '#258043',
-    fontFamily: 'Monda_700Bold',
-    fontSize: 10,
+  activeSwitchOn: {
+    backgroundColor: '#DFF0DD',
   },
-  archiveRow: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    marginTop: 12,
+  switchThumb: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    height: 24,
+    width: 24,
   },
-  archiveText: {
-    color: '#615D5F',
-    fontFamily: 'Monda_400Regular',
-    fontSize: 11,
+  switchThumbOn: {
+    alignSelf: 'flex-end',
+    backgroundColor: '#258043',
   },
   feedbackText: {
     color: '#B42318',
     fontFamily: 'Monda_400Regular',
     fontSize: 11,
-    marginTop: 8,
-  },
-  metadataFeedback: {
-    color: '#7A5A13',
-    fontFamily: 'Monda_400Regular',
-    fontSize: 10,
     marginTop: 8,
   },
   actionRow: {

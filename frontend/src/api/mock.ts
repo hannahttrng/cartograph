@@ -6,8 +6,10 @@ import type {
   AssistantRecipeImportRequest,
   AssistantRecipeImportResponse,
   GetMapResponse,
-  GetRoutesRequest,
-  GetRoutesResponse,
+  RouteCalculationResponse,
+  RouteCandidateResult,
+  RouteCandidatesResponse,
+  ShoppingListActiveUpdateRequest,
   ShoppingListCreateRequest,
   ShoppingListItem,
   ShoppingListItemInput,
@@ -17,17 +19,40 @@ import type {
 } from '../types/api';
 import type { Route } from '../types/models';
 import type { MapRouteData } from '../types/maps';
+import { DEMO_ROUTE_ORIGIN } from '../constants/config';
 import { ApiError } from './client';
 
 const lists = new Map<EntityId, ShoppingListResponse>();
 let nextListId = 1;
+let routeGeneration = 0;
+let routeCalculation: RouteCalculationResponse = {
+  generation: 0,
+  status: 'IDLE',
+  activeListCount: 0,
+  itemCount: 0,
+  resultCount: 0,
+  optimizerStatus: null,
+  startedAt: null,
+  completedAt: null,
+  elapsedSeconds: null,
+  timeoutSeconds: null,
+  errorCode: null,
+  detail: null,
+};
 
 const catalogTags: readonly CatalogTag[] = [
   { tag: 'bread', defaultUnit: 'loaf', defaultQuantity: 1, products: [] },
-  { tag: 'egg', defaultUnit: 'count', defaultQuantity: 6, products: [] },
-  { tag: 'ground beef', defaultUnit: 'lbs', defaultQuantity: 1, products: [] },
+  { tag: 'egg', defaultUnit: 'count', defaultQuantity: 12, products: [] },
+  { tag: 'ground beef', defaultUnit: 'lbs', defaultQuantity: 1.5, products: [] },
   { tag: 'milk', defaultUnit: 'gallon', defaultQuantity: 1, products: [] },
 ];
+
+const catalogModifiers: Readonly<Record<string, readonly string[]>> = {
+  bread: ["brand: dave's killer bread", 'gluten free', 'on sale', 'organic'],
+  egg: ['free range', 'large', 'on sale', 'organic'],
+  'ground beef': ['grass fed', 'on sale', 'organic'],
+  milk: ['brand: horizon', 'on sale', 'organic'],
+};
 
 const normalizeText = (value: string): string => value.trim().toLowerCase();
 
@@ -91,7 +116,7 @@ const mockRoutes: Route[] = [
   },
 ];
 
-const cloneRoutes = (): GetRoutesResponse =>
+const cloneRoutes = (): Route[] =>
   mockRoutes.map((route) => ({
     ...route,
     stores: route.stores.map((store) => ({ ...store })),
@@ -100,6 +125,73 @@ const cloneRoutes = (): GetRoutesResponse =>
       store: { ...product.store },
     })),
   }));
+
+const mockRouteCandidate: RouteCandidateResult = {
+  id: 1,
+  stores: [
+    {
+      id: 1,
+      name: 'Cartograph Market',
+      address: '100 Main Street',
+      latitude: 34.056,
+      longitude: -117.195,
+    },
+    {
+      id: 2,
+      name: 'Fresh Fields',
+      address: '220 Citrus Avenue',
+      latitude: 34.0612,
+      longitude: -117.1884,
+    },
+  ],
+  products: [
+    { id: 10, name: 'Whole Milk', store: 1, unit: 'gallon', modifiers: ['on sale', 'organic'], selectionPrice: 4.25 },
+    { id: 20, name: 'Sandwich Bread', store: 2, unit: 'loaf', modifiers: ['in season'], selectionPrice: 3.49 },
+  ],
+  selections: [
+    { tag: 'milk', modifiers: [], unit: 'gallon', quantity: 1, product: 10 },
+    { tag: 'bread', modifiers: [], unit: 'loaf', quantity: 1, product: 20 },
+  ],
+  distance: 3.2,
+  time: 12,
+  productPrice: 7.74,
+  matchedItemCount: 2,
+  score: 18.31,
+  scoreComponents: {
+    productPrice: 7.74,
+    distanceCost: 2.24,
+    timeCost: 3.33,
+    storeCost: 5,
+    modifierPenalty: 0,
+  },
+  errorCode: null,
+};
+
+const cloneCalculation = (): RouteCalculationResponse => ({ ...routeCalculation });
+
+const completeMockCalculation = (): RouteCalculationResponse => {
+  routeGeneration += 1;
+  const activeLists = [...lists.values()].filter((list) => list.active);
+  const itemCount = new Set(
+    activeLists.flatMap((list) => list.items.map((item) => item.tag)),
+  ).size;
+  const hasResults = itemCount > 0;
+  routeCalculation = {
+    generation: routeGeneration,
+    status: 'SUCCEEDED',
+    activeListCount: activeLists.length,
+    itemCount,
+    resultCount: hasResults ? 1 : 0,
+    optimizerStatus: hasResults ? 'HEURISTIC' : null,
+    startedAt: routeGeneration,
+    completedAt: routeGeneration,
+    elapsedSeconds: 0,
+    timeoutSeconds: hasResults ? 10 : null,
+    errorCode: null,
+    detail: null,
+  };
+  return cloneCalculation();
+};
 
 const mockRecipeFor = (
   request: AssistantRecipeImportRequest,
@@ -167,11 +259,17 @@ export const mockApi = {
     return catalogTags.map((tag) => ({ ...tag, products: [...tag.products] }));
   },
 
+  listTagModifiers(tag: string): readonly string[] {
+    if (!catalogTags.some((candidate) => candidate.tag === tag)) {
+      throw new ApiError('Tag not found', { status: 404 });
+    }
+    return [...(catalogModifiers[tag] ?? [])];
+  },
+
   listShoppingLists(): readonly ShoppingListResponse[] {
     return [...lists.values()].map((list) => ({
       ...list,
       items: list.items.map((item) => ({ ...item, modifiers: [...item.modifiers] })),
-      routes: [...list.routes],
     }));
   },
 
@@ -182,10 +280,9 @@ export const mockApi = {
       name: request.name?.trim() || `New List ${id}`,
       items: resolveItems(request.items),
       active: request.active ?? true,
-      routes: [],
-      status: 'PENDING',
     };
     lists.set(id, list);
+    if (list.active) completeMockCalculation();
     return { ...list };
   },
 
@@ -204,10 +301,12 @@ export const mockApi = {
       name: request.name.trim(),
       items: resolveItems(request.items),
       active: request.active ?? true,
-      routes: [],
-      status: 'PENDING',
     };
     lists.set(id, updated);
+    const itemsChanged = JSON.stringify(current.items) !== JSON.stringify(updated.items);
+    if (current.active !== updated.active || (itemsChanged && updated.active)) {
+      completeMockCalculation();
+    }
     return { ...updated };
   },
 
@@ -220,14 +319,49 @@ export const mockApi = {
     return { ...updated };
   },
 
-  deleteShoppingList(id: EntityId): void {
-    if (!lists.delete(id)) {
-      throw new ApiError('Shopping list not found', { status: 404 });
-    }
+  updateShoppingListActive(
+    id: EntityId,
+    request: ShoppingListActiveUpdateRequest,
+  ): ShoppingListResponse {
+    const current = requireList(id);
+    const updated = { ...current, active: request.active };
+    lists.set(id, updated);
+    if (current.active !== updated.active) completeMockCalculation();
+    return { ...updated };
   },
 
-  getRoutes(_request: GetRoutesRequest): GetRoutesResponse {
-    return cloneRoutes();
+  deleteShoppingList(id: EntityId): void {
+    const current = lists.get(id);
+    if (!current || !lists.delete(id)) {
+      throw new ApiError('Shopping list not found', { status: 404 });
+    }
+    if (current.active) completeMockCalculation();
+  },
+
+  getRouteCalculation(): RouteCalculationResponse {
+    return cloneCalculation();
+  },
+
+  startRouteCalculation(): RouteCalculationResponse {
+    return completeMockCalculation();
+  },
+
+  getRouteCandidates(): RouteCandidatesResponse {
+    return {
+      generation: routeCalculation.generation,
+      candidates: routeCalculation.resultCount > 0
+        ? [{
+            ...mockRouteCandidate,
+            stores: mockRouteCandidate.stores.map((store) => ({ ...store })),
+            products: mockRouteCandidate.products.map((product) => ({ ...product })),
+            selections: mockRouteCandidate.selections.map((selection) => ({
+              ...selection,
+              modifiers: [...selection.modifiers],
+            })),
+            scoreComponents: { ...mockRouteCandidate.scoreComponents },
+          }]
+        : [],
+    };
   },
 
   getMap(routeId: string): MapRouteData {
@@ -235,12 +369,14 @@ export const mockApi = {
 
     return {
       routeId,
-      stores: route?.stores ?? [],
-      distance: route?.distance ?? 0,
-      time: route?.time ?? 0,
-      polyline: {
-        points: route?.stores.map(({ latitude, longitude }) => ({ latitude, longitude })) ?? [],
-      },
+      origin: { ...DEMO_ROUTE_ORIGIN },
+      stops: route?.stores.map(({ address, name }, index) => ({
+        address,
+        name,
+        sequence: index + 1,
+      })) ?? [],
+      estimatedDistanceMiles: route?.distance ?? 0,
+      estimatedTimeMinutes: route?.time ?? 0,
     };
   },
 };

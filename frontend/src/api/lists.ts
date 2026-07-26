@@ -1,6 +1,7 @@
 import { USE_MOCK_DATA } from '../constants/config';
 import type {
   EntityId,
+  ShoppingListActiveUpdateRequest,
   ShoppingListCreateRequest,
   ShoppingListNameUpdateRequest,
   ShoppingListReplaceRequest,
@@ -65,6 +66,19 @@ export async function updateShoppingListName(
   const path = `${shoppingListPath(id)}/name`;
   if (USE_MOCK_DATA) {
     return parseShoppingList(mockApi.updateShoppingListName(id, request));
+  }
+
+  const { data } = await apiClient.patch<unknown>(path, request);
+  return parseShoppingList(data);
+}
+
+export async function updateShoppingListActive(
+  id: EntityId,
+  request: ShoppingListActiveUpdateRequest,
+): Promise<ShoppingListResponse> {
+  const path = `${shoppingListPath(id)}/active`;
+  if (USE_MOCK_DATA) {
+    return parseShoppingList(mockApi.updateShoppingListActive(id, request));
   }
 
   const { data } = await apiClient.patch<unknown>(path, request);

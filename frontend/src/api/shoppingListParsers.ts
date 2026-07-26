@@ -3,7 +3,6 @@ import type {
   EntityId,
   ShoppingListItem,
   ShoppingListResponse,
-  ShoppingListStatus,
 } from '../types/api';
 import { ApiError } from './client';
 
@@ -34,7 +33,7 @@ const parsePositiveNumber = (value: unknown, label: string): number => {
   return value;
 };
 
-const parseSortedNormalizedStrings = (
+export const parseSortedNormalizedStrings = (
   value: unknown,
   label: string,
 ): readonly string[] => {
@@ -49,6 +48,9 @@ const parseSortedNormalizedStrings = (
   }
   return [...value];
 };
+
+export const parseTagModifiers = (value: unknown): readonly string[] =>
+  parseSortedNormalizedStrings(value, 'Tag modifiers');
 
 const parseUniqueEntityIds = (
   value: unknown,
@@ -76,18 +78,6 @@ const parseShoppingListItem = (value: unknown): ShoppingListItem => {
   };
 };
 
-const parseStatus = (value: unknown): ShoppingListStatus => {
-  if (
-    value !== 'PENDING' &&
-    value !== 'COMPUTING' &&
-    value !== 'READY' &&
-    value !== 'FAILED'
-  ) {
-    return invalidResponse('The API returned an invalid ShoppingList status.');
-  }
-  return value;
-};
-
 export const parseShoppingList = (value: unknown): ShoppingListResponse => {
   if (
     !isObject(value) ||
@@ -106,19 +96,11 @@ export const parseShoppingList = (value: unknown): ShoppingListResponse => {
     return invalidResponse('The API returned duplicate ShoppingList item tags.');
   }
 
-  const routes = parseUniqueEntityIds(value.routes, 'ShoppingList route IDs');
-  const status = parseStatus(value.status);
-  if (routes.length > 0 && status !== 'READY') {
-    return invalidResponse('The API returned inconsistent ShoppingList routes.');
-  }
-
   return {
     id: parseEntityId(value.id, 'ShoppingList ID'),
     name: value.name,
     items,
     active: value.active,
-    routes,
-    status,
   };
 };
 

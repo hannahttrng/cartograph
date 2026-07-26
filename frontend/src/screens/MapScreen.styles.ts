@@ -1,5 +1,7 @@
 import { StyleSheet } from 'react-native';
 
+import { colors, radius, spacing, typography } from '../theme';
+
 export const styles = StyleSheet.create({
   screen: {
     backgroundColor: '#F7F9F6',
@@ -24,6 +26,34 @@ export const styles = StyleSheet.create({
   },
   mapSurface: {
     flex: 1,
+  },
+  routeErrorBand: {
+    alignItems: 'center',
+    backgroundColor: '#FFF4F1',
+    borderTopColor: colors.border,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    flexDirection: 'row',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  routeErrorText: {
+    ...typography.body,
+    color: colors.danger,
+    flex: 1,
+  },
+  routeRetryButton: {
+    alignItems: 'center',
+    borderColor: colors.primary,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    justifyContent: 'center',
+    minHeight: 40,
+    paddingHorizontal: spacing.sm,
+  },
+  routeRetryText: {
+    ...typography.bodyStrong,
+    color: colors.primary,
   },
   fallbackContent: {
     paddingBottom: 28,

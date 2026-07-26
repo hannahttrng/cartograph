@@ -50,8 +50,6 @@
         "quantity": 2.0
       }
     ],
-    "active": false,
-    "routes": [],
-    "status": "PENDING"
+    "active": false
   }
 }

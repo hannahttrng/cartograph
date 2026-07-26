@@ -1,5 +1,15 @@
 import type { EntityId } from '../types/api';
-import type { Route } from '../types/models';
+
+interface MapRouteInput {
+  readonly stores: ReadonlyArray<{
+    readonly name: string;
+    readonly address: string;
+    readonly latitude?: number | null;
+    readonly longitude?: number | null;
+  }>;
+  readonly distance: number;
+  readonly time: number;
+}
 
 export type RootStackParamList = {
   Home: undefined;
@@ -20,13 +30,8 @@ export type RootStackParamList = {
       }
     | undefined;
   NearbyDeals: undefined;
-  RouteResults: {
-    items: string[];
-    listId: EntityId;
-    listName?: string;
-  };
   Map: {
-    route: Route;
+    route: MapRouteInput;
     routeId?: string;
   };
 };

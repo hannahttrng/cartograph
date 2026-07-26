@@ -28,9 +28,10 @@ def _metric(distance: float, travel_time: float) -> TravelMetric:
 
 def _performance_fixture(
     tag_count: int,
+    store_count: int = 10,
 ) -> tuple[OptimizationCatalog, DirectedTravelMatrix]:
     tags = tuple(f"tag-{index:02d}" for index in range(tag_count))
-    store_ids = tuple(range(1, 11))
+    store_ids = tuple(range(1, store_count + 1))
     store_products = {store_id: [] for store_id in store_ids}
     products: list[OptimizationProduct] = []
     product_id = 1
@@ -150,6 +151,30 @@ def test_optimizer_meets_latency_target(
     assert result is not None
     assert result.status == RouteOptimizationStatus.HEURISTIC
     assert len(result.candidates) == 20
+    assert len({frozenset(candidate.stores) for candidate in result.candidates}) == len(
+        result.candidates
+    )
     assert median(samples) < maximum_median_seconds, (
         f"{tag_count}-item median exceeded {maximum_median_seconds}s: {samples}"
     )
+
+
+def test_optimizer_meets_large_case_target_with_twelve_store_catalog() -> None:
+    catalog, travel = _performance_fixture(10, store_count=12)
+
+    started_at = perf_counter()
+    result = optimize_routes(
+        catalog,
+        travel,
+        limit=20,
+        settings=SolverSettings(timeout_seconds=10),
+    )
+    elapsed = perf_counter() - started_at
+
+    assert len(catalog.stores) == 12
+    assert result.status == RouteOptimizationStatus.HEURISTIC
+    assert len(result.candidates) == 20
+    assert len({frozenset(candidate.stores) for candidate in result.candidates}) == len(
+        result.candidates
+    )
+    assert elapsed < 4.0, f"12-store case exceeded 4.0s: {elapsed}"

@@ -1,39 +1,76 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Linking, Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { RouteMap } from '../components/map/RouteMap';
-import { ARCGIS_WEB_MAP_BROWSER_URL } from '../constants/config';
+import { MapDiagnosticsPanel } from '../components/map/MapDiagnosticsPanel';
+import { RouteDirectionsPanel } from '../components/map/RouteDirectionsPanel';
+import {
+  ARCGIS_WEB_MAP_BROWSER_URL,
+  DEMO_ROUTE_ORIGIN,
+} from '../constants/config';
 import type { RootStackParamList } from '../navigation/types';
-import type { MapRouteData, MapState } from '../types/maps';
-import type { Store } from '../types/models';
+import type {
+  ArcGISMapDiagnostic,
+  MapRouteData,
+  MapRouteError,
+  MapRouteResult,
+  MapState,
+} from '../types/maps';
 import { styles } from './MapScreen.styles';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Map'>;
+type MapStoreInput = RootStackParamList['Map']['route']['stores'][number];
+const MAX_MAP_DIAGNOSTICS = 24;
 
 export function MapScreen({ route }: Props) {
   const { route: selectedRoute, routeId } = route.params;
   const mapData = useMemo<MapRouteData>(
     () => ({
       routeId: routeId ?? 'local-preview',
-      stores: selectedRoute.stores,
-      distance: selectedRoute.distance,
-      time: selectedRoute.time,
-      polyline: {
-        points: selectedRoute.stores.map(({ latitude, longitude }: Store) => ({
-          latitude,
-          longitude,
-        })),
-      },
+      origin: { ...DEMO_ROUTE_ORIGIN },
+      stops: selectedRoute.stores.map((
+        { address, latitude, longitude, name }: MapStoreInput,
+        index: number,
+      ) => ({
+        address,
+        ...(latitude != null && longitude != null
+          ? { coordinate: { latitude, longitude } }
+          : {}),
+        name,
+        sequence: index + 1,
+      })),
+      estimatedDistanceMiles: selectedRoute.distance,
+      estimatedTimeMinutes: selectedRoute.time,
     }),
     [routeId, selectedRoute],
   );
-  const [mapState, setMapState] = useState<MapState>('loading');
+  const [mapState, setMapState] = useState<MapState>('loadingMap');
+  const [mapErrorMessage, setMapErrorMessage] = useState<string | null>(null);
+  const [routeError, setRouteError] = useState<MapRouteError | null>(null);
+  const [routeResult, setRouteResult] = useState<MapRouteResult | null>(null);
+  const [mapDiagnostics, setMapDiagnostics] = useState<readonly ArcGISMapDiagnostic[]>([]);
+  const [firstDiagnosticFailure, setFirstDiagnosticFailure] =
+    useState<ArcGISMapDiagnostic | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
 
+  useEffect(() => {
+    setMapState('loadingMap');
+    setMapErrorMessage(null);
+    setRouteError(null);
+    setRouteResult(null);
+    setMapDiagnostics([]);
+    setFirstDiagnosticFailure(null);
+  }, [mapData]);
+
   const retryMap = useCallback(() => {
-    setMapState('loading');
+    setMapState('loadingMap');
+    setMapErrorMessage(null);
+    setRouteError(null);
+    setRouteResult(null);
+    setMapDiagnostics([]);
+    setFirstDiagnosticFailure(null);
     setReloadKey((currentKey) => currentKey + 1);
   }, []);
 
@@ -41,17 +78,57 @@ export function MapScreen({ route }: Props) {
     try {
       await Linking.openURL(ARCGIS_WEB_MAP_BROWSER_URL);
     } catch {
+      setMapErrorMessage('The ArcGIS Web Map could not be opened in a browser.');
       setMapState('mapUnavailable');
     }
   }, []);
 
-  const summary = `${selectedRoute.stores.length} ${selectedRoute.stores.length === 1 ? 'stop' : 'stops'} - ${selectedRoute.distance.toFixed(1)} mi - ${Math.round(selectedRoute.time)} min`;
+  const distance = routeResult?.totalDistanceMiles ?? mapData.estimatedDistanceMiles;
+  const time = routeResult?.totalTimeMinutes ?? mapData.estimatedTimeMinutes;
+  const summary = `${mapData.stops.length} ${mapData.stops.length === 1 ? 'stop' : 'stops'} - ${distance.toFixed(1)} mi - ${Math.round(time)} min`;
+  const routeErrorMessage = routeError
+    ? [
+        routeError.stopSequence === undefined
+          ? null
+          : `Stop ${routeError.stopSequence}${routeError.stopName ? ` (${routeError.stopName})` : ''}`,
+        routeError.message,
+      ].filter(Boolean).join(': ')
+    : null;
   const routeMap = (
     <RouteMap
       mapData={mapData}
-      onError={() => setMapState('mapUnavailable')}
-      onLoad={() => setMapState('routeSelected')}
-      onLoadStart={() => setMapState('loading')}
+      onDiagnostic={(diagnostic) => {
+        setMapDiagnostics((current) =>
+          [...current, diagnostic].slice(-MAX_MAP_DIAGNOSTICS)
+        );
+        if (diagnostic.status === 'failed') {
+          setFirstDiagnosticFailure((current) => current ?? diagnostic);
+        }
+      }}
+      onMapError={(message) => {
+        setMapErrorMessage(message);
+        setMapState('mapUnavailable');
+      }}
+      onMapLoadStart={() => {
+        setMapErrorMessage(null);
+        setRouteError(null);
+        setRouteResult(null);
+        setMapDiagnostics([]);
+        setFirstDiagnosticFailure(null);
+        setMapState('loadingMap');
+      }}
+      onMapReady={() => setMapState('solvingRoute')}
+      onRouteError={(error) => {
+        setRouteError(error);
+        setRouteResult(null);
+        setMapState('routeUnavailable');
+      }}
+      onRouteSolved={(result) => {
+        setRouteError(null);
+        setRouteResult(result);
+        setMapState('routeReady');
+      }}
+      onRouteSolving={() => setMapState('solvingRoute')}
       reloadKey={reloadKey}
       state={mapState}
     />
@@ -66,7 +143,7 @@ export function MapScreen({ route }: Props) {
             <Text style={styles.subtitle}>{summary}</Text>
           </View>
           <Text accessibilityLiveRegion="assertive" style={styles.errorText}>
-            The interactive map is unavailable. Your route details are shown below.
+            {mapErrorMessage ?? 'The interactive map is unavailable.'} Your route details are shown below.
           </Text>
           {routeMap}
           <View style={styles.actionRow}>
@@ -98,6 +175,30 @@ export function MapScreen({ route }: Props) {
         <Text style={styles.subtitle}>{summary}</Text>
       </View>
       <View style={styles.mapSurface}>{routeMap}</View>
+      <MapDiagnosticsPanel
+        diagnostics={mapDiagnostics}
+        firstFailure={firstDiagnosticFailure}
+      />
+      {routeErrorMessage ? (
+        <View style={styles.routeErrorBand}>
+          <Text accessibilityLiveRegion="assertive" style={styles.routeErrorText}>
+            {routeErrorMessage}
+          </Text>
+          <Pressable
+            accessibilityRole="button"
+            onPress={retryMap}
+            style={({ pressed }) => [styles.routeRetryButton, pressed && styles.pressed]}
+          >
+            <Text style={styles.routeRetryText}>Retry route</Text>
+          </Pressable>
+        </View>
+      ) : null}
+      {routeResult ? (
+        <RouteDirectionsPanel
+          key={`${mapData.routeId}-${reloadKey}`}
+          result={routeResult}
+        />
+      ) : null}
     </SafeAreaView>
   );
 }

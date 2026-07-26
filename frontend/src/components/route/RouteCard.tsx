@@ -3,23 +3,24 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import RoutesIcon from '../../../assets/routes-nav.svg';
 import ExpandIcon from '../../../assets/svg icons/keyboard_arrow_up.svg';
 import { colors, radius, spacing, typography } from '../../theme';
-import type { Product, Route } from '../../types/models';
+import type { RouteCandidateResult, RouteProductSummary } from '../../types/api';
+import { routeModifierBadges } from '../../utils/modifiers';
+import { formatTagLabel } from '../../utils/tags';
 
 interface RouteCardProps {
   isExpanded: boolean;
   onOpenMap: () => void;
   onToggle: () => void;
   rank: number;
-  route: Route;
+  route: RouteCandidateResult;
   routeCount: number;
-  title?: string;
 }
 
-const purchaseTotal = (route: Route): number =>
-  route.products.reduce((total, product) => total + product.price, 0);
-
-const productsAtStore = (route: Route, storeName: string): Product[] =>
-  route.products.filter((product) => product.store.name === storeName);
+const productsAtStore = (
+  route: RouteCandidateResult,
+  storeId: number,
+): readonly RouteProductSummary[] =>
+  route.products.filter((product) => product.store === storeId);
 
 export function RouteCard({
   isExpanded,
@@ -28,90 +29,138 @@ export function RouteCard({
   rank,
   route,
   routeCount,
-  title = `Route ${rank}`,
 }: RouteCardProps) {
   const storeLabel = route.stores.length === 1 ? 'store' : 'stores';
-  const total = purchaseTotal(route);
-  const summary = `${title}, rank ${rank} of ${routeCount}, ${route.stores.length} ${storeLabel}, ${route.distance.toFixed(1)} miles, ${Math.round(route.time)} minutes, $${total.toFixed(2)} purchase total`;
+  const storeSequence = route.stores.map((store) => store.name).join(' → ');
+  const total = route.productPrice;
+  const unmatched = route.selections.filter((selection) => selection.product === null);
+  const selectionsByProduct = new Map(
+    route.selections.flatMap((selection) =>
+      selection.product === null ? [] : [[selection.product, selection] as const],
+    ),
+  );
+  const summary = `${storeSequence}, rank ${rank} of ${routeCount}, ${route.stores.length} ${storeLabel}, ${route.distance.toFixed(1)} miles, ${Math.round(route.time)} minutes, $${total.toFixed(2)} purchase total`;
 
   return (
     <View style={styles.card}>
-      <Pressable
-        accessibilityLabel={summary}
-        accessibilityHint={isExpanded ? 'Collapses route details' : 'Expands route details'}
-        accessibilityRole="button"
-        accessibilityState={{ expanded: isExpanded }}
-        onPress={onToggle}
-        style={({ pressed }) => [styles.summaryButton, pressed && styles.pressed]}
-      >
-        <View style={styles.header}>
-          <View>
-            <Text style={styles.eyebrow}>RANK {rank} OF {routeCount}</Text>
-            <Text style={styles.title}>{title}</Text>
-          </View>
+      <View style={styles.topRow}>
+        <Pressable
+          accessibilityLabel={summary}
+          accessibilityHint={isExpanded ? 'Collapses route details' : 'Expands route details'}
+          accessibilityRole="button"
+          accessibilityState={{ expanded: isExpanded }}
+          onPress={onToggle}
+          style={({ pressed }) => [styles.routeHeading, pressed && styles.pressed]}
+        >
+          <Text ellipsizeMode="tail" numberOfLines={1} style={styles.routeName}>
+            {storeSequence}
+          </Text>
           <View
             accessibilityElementsHidden
             importantForAccessibility="no-hide-descendants"
             style={[styles.expandIcon, !isExpanded && styles.expandIconCollapsed]}
           >
-            <ExpandIcon height={22} width={22} />
+            <ExpandIcon height={20} width={20} />
           </View>
-        </View>
+        </Pressable>
+        <Pressable
+          accessibilityLabel={`Open ${storeSequence} map`}
+          accessibilityRole="button"
+          onPress={onOpenMap}
+          style={({ pressed }) => [styles.mapButton, pressed && styles.mapButtonPressed]}
+        >
+          <View style={styles.mapIcon}>
+            <RoutesIcon height={15} width={16} />
+          </View>
+          <Text style={styles.mapButtonText}>Open Map</Text>
+        </Pressable>
+      </View>
 
-        <View style={styles.metricGrid}>
-          <View style={styles.metric}>
-            <Text style={styles.metricValue}>{route.stores.length}</Text>
-            <Text style={styles.metricLabel}>{storeLabel}</Text>
-          </View>
-          <View style={styles.metric}>
-            <Text style={styles.metricValue}>{route.distance.toFixed(1)}</Text>
-            <Text style={styles.metricLabel}>miles</Text>
-          </View>
-          <View style={styles.metric}>
-            <Text style={styles.metricValue}>{Math.round(route.time)}</Text>
-            <Text style={styles.metricLabel}>minutes</Text>
-          </View>
-          <View style={styles.metric}>
-            <Text style={styles.metricValue}>${total.toFixed(2)}</Text>
-            <Text style={styles.metricLabel}>purchase total</Text>
-          </View>
+      <View style={styles.metricRow}>
+        <View style={[styles.metric, styles.metricDivider]}>
+          <Text adjustsFontSizeToFit numberOfLines={1} style={styles.metricValue}>{route.stores.length}</Text>
+          <Text numberOfLines={1} style={styles.metricLabel}>{storeLabel}</Text>
         </View>
-      </Pressable>
+        <View style={[styles.metric, styles.metricDivider]}>
+          <Text adjustsFontSizeToFit numberOfLines={1} style={styles.metricValue}>{route.distance.toFixed(1)}</Text>
+          <Text numberOfLines={1} style={styles.metricLabel}>miles</Text>
+        </View>
+        <View style={[styles.metric, styles.metricDivider]}>
+          <Text adjustsFontSizeToFit numberOfLines={1} style={styles.metricValue}>{Math.round(route.time)}</Text>
+          <Text numberOfLines={1} style={styles.metricLabel}>minutes</Text>
+        </View>
+        <View style={styles.metric}>
+          <Text adjustsFontSizeToFit numberOfLines={1} style={styles.metricValue}>${total.toFixed(2)}</Text>
+          <Text numberOfLines={1} style={styles.metricLabel}>dollars</Text>
+        </View>
+      </View>
 
       {isExpanded ? (
         <View style={styles.details}>
           <Text accessibilityRole="header" style={styles.detailsTitle}>Store order</Text>
           {route.stores.map((store, storeIndex) => (
-            <View key={`${store.name}-${store.address}`} style={styles.stop}>
+            <View key={store.id} style={styles.stop}>
               <Text style={styles.stopNumber}>{storeIndex + 1}</Text>
               <View style={styles.stopContent}>
                 <Text style={styles.storeName}>{store.name}</Text>
                 <Text style={styles.storeAddress}>{store.address}</Text>
                 <View style={styles.productList}>
-                  {productsAtStore(route, store.name).map((product) => (
-                    <View key={`${product.store.name}-${product.name}`} style={styles.productRow}>
-                      <Text style={styles.productName}>{product.name}</Text>
-                      <Text style={styles.productPrice}>${product.price.toFixed(2)}</Text>
+                  {productsAtStore(route, store.id).map((product) => (
+                    <View
+                      accessible
+                      accessibilityLabel={(() => {
+                        const badges = routeModifierBadges(
+                          product.modifiers,
+                          selectionsByProduct.get(product.id)?.modifiers ?? [],
+                        );
+                        return `${product.name}, $${product.selectionPrice.toFixed(2)}${
+                          badges.length > 0
+                            ? `, modifiers: ${badges.map(formatTagLabel).join(', ')}`
+                            : ''
+                        }`;
+                      })()}
+                      key={product.id}
+                      style={styles.productRow}
+                    >
+                      <View style={styles.productCopy}>
+                        <Text style={styles.productName}>{product.name}</Text>
+                        {(() => {
+                          const badges = routeModifierBadges(
+                            product.modifiers,
+                            selectionsByProduct.get(product.id)?.modifiers ?? [],
+                          );
+                          return badges.length > 0 ? (
+                            <View
+                              accessibilityElementsHidden
+                              importantForAccessibility="no-hide-descendants"
+                              style={styles.modifierRow}
+                            >
+                              {badges.map((modifier) => (
+                                <View key={modifier} style={styles.modifierBadge}>
+                                  <Text numberOfLines={1} style={styles.modifierText}>
+                                    {formatTagLabel(modifier)}
+                                  </Text>
+                                </View>
+                              ))}
+                            </View>
+                          ) : null;
+                        })()}
+                      </View>
+                      <Text style={styles.productPrice}>${product.selectionPrice.toFixed(2)}</Text>
                     </View>
                   ))}
                 </View>
               </View>
             </View>
           ))}
+          {unmatched.length > 0 ? (
+            <View style={styles.unmatched}>
+              <Text style={styles.unmatchedTitle}>Not matched</Text>
+              <Text style={styles.unmatchedText}>{unmatched.map((item) => formatTagLabel(item.tag)).join(', ')}</Text>
+            </View>
+          ) : null}
         </View>
       ) : null}
-
-      <Pressable
-        accessibilityLabel={`Open ${title} map`}
-        accessibilityRole="button"
-        onPress={onOpenMap}
-        style={({ pressed }) => [styles.mapButton, pressed && styles.mapButtonPressed]}
-      >
-        <View style={styles.mapIcon}>
-          <RoutesIcon height={18} width={19} />
-        </View>
-        <Text style={styles.mapButtonText}>Open map</Text>
-      </Pressable>
     </View>
   );
 }
@@ -124,56 +173,92 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     overflow: 'hidden',
   },
-  summaryButton: {
-    padding: spacing.md,
-  },
   pressed: {
     backgroundColor: colors.surfaceSubtle,
   },
-  header: {
+  topRow: {
     alignItems: 'center',
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    gap: spacing.sm,
+    minHeight: 58,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
   },
-  eyebrow: {
-    ...typography.caption,
-    color: colors.textMuted,
-    fontSize: 10,
+  routeHeading: {
+    alignItems: 'center',
+    borderRadius: radius.sm,
+    flex: 1,
+    flexDirection: 'row',
+    minHeight: 40,
+    minWidth: 0,
   },
-  title: {
-    ...typography.title,
+  routeName: {
+    ...typography.bodyStrong,
     color: colors.text,
-    marginTop: 2,
+    flex: 1,
+    fontSize: 14,
   },
   expandIcon: {
     alignItems: 'center',
-    height: 30,
+    height: 28,
     justifyContent: 'center',
-    width: 30,
+    marginLeft: spacing.xs,
+    width: 28,
   },
   expandIconCollapsed: {
     transform: [{ rotate: '180deg' }],
   },
-  metricGrid: {
+  mapButton: {
+    alignItems: 'center',
+    backgroundColor: colors.primary,
+    borderRadius: radius.sm,
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    marginHorizontal: -4,
-    marginTop: spacing.sm,
-    rowGap: spacing.xs,
+    gap: 6,
+    justifyContent: 'center',
+    minHeight: 40,
+    paddingHorizontal: 10,
+  },
+  mapButtonPressed: {
+    opacity: 0.76,
+  },
+  mapIcon: {
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderRadius: 4,
+    height: 23,
+    justifyContent: 'center',
+    width: 25,
+  },
+  mapButtonText: {
+    ...typography.caption,
+    color: colors.textInverse,
+    fontFamily: 'Monda_700Bold',
+    fontSize: 10,
+  },
+  metricRow: {
+    backgroundColor: colors.surfaceSubtle,
+    borderTopColor: colors.border,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    flexDirection: 'row',
+    minHeight: 64,
   },
   metric: {
-    backgroundColor: colors.surfaceSubtle,
-    borderRadius: radius.sm,
-    marginHorizontal: '1%',
-    minHeight: 66,
-    paddingHorizontal: 10,
-    paddingVertical: 10,
-    width: '48%',
+    alignItems: 'center',
+    flex: 1,
+    justifyContent: 'center',
+    minWidth: 0,
+    paddingHorizontal: 4,
+    paddingVertical: 8,
+  },
+  metricDivider: {
+    borderRightColor: colors.border,
+    borderRightWidth: StyleSheet.hairlineWidth,
   },
   metricValue: {
     color: colors.primaryDark,
     fontFamily: 'Monda_700Bold',
-    fontSize: 17,
+    fontSize: 15,
+    maxWidth: '100%',
   },
   metricLabel: {
     ...typography.caption,
@@ -224,45 +309,47 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   productRow: {
-    alignItems: 'center',
+    alignItems: 'flex-start',
     flexDirection: 'row',
     justifyContent: 'space-between',
-    minHeight: 28,
+    minHeight: 36,
+    paddingVertical: 4,
+  },
+  productCopy: {
+    flex: 1,
+    marginRight: spacing.sm,
   },
   productName: {
     ...typography.body,
     color: colors.text,
-    flex: 1,
     fontSize: 13,
-    marginRight: 12,
   },
   productPrice: {
     ...typography.bodyStrong,
     color: colors.primary,
     fontSize: 13,
   },
-  mapButton: {
-    alignItems: 'center',
-    backgroundColor: colors.primary,
+  modifierRow: {
     flexDirection: 'row',
-    gap: 8,
-    justifyContent: 'center',
-    minHeight: 48,
-    paddingHorizontal: 16,
+    flexWrap: 'wrap',
+    gap: 5,
+    marginTop: 5,
   },
-  mapButtonPressed: {
-    opacity: 0.76,
+  modifierBadge: {
+    backgroundColor: colors.primaryMuted,
+    borderRadius: radius.pill,
+    maxWidth: 150,
+    minHeight: 22,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
   },
-  mapIcon: {
-    alignItems: 'center',
-    backgroundColor: colors.surface,
-    borderRadius: radius.sm,
-    height: 27,
-    justifyContent: 'center',
-    width: 29,
+  modifierText: {
+    color: colors.primary,
+    fontFamily: 'Monda_700Bold',
+    fontSize: 9,
+    lineHeight: 14,
   },
-  mapButtonText: {
-    ...typography.bodyStrong,
-    color: colors.textInverse,
-  },
+  unmatched: { backgroundColor: '#FFF4E8', borderRadius: radius.sm, marginTop: spacing.sm, padding: spacing.sm },
+  unmatchedTitle: { ...typography.bodyStrong, color: colors.text, fontSize: 12 },
+  unmatchedText: { ...typography.caption, color: colors.textMuted, marginTop: 2 },
 });

@@ -1,4 +1,4 @@
-import type { Route, Store } from './models';
+import type { Store } from './models';
 
 export type EntityId = number;
 
@@ -39,63 +39,97 @@ export interface ShoppingListNameUpdateRequest {
   readonly name: string;
 }
 
-export type ShoppingListStatus =
-  | 'PENDING'
-  | 'COMPUTING'
-  | 'READY'
-  | 'FAILED';
+export interface ShoppingListActiveUpdateRequest {
+  readonly active: boolean;
+}
 
 export interface ShoppingListResponse {
   readonly id: EntityId;
   readonly name: string;
   readonly items: readonly ShoppingListItem[];
   readonly active: boolean;
-  readonly routes: readonly EntityId[];
-  readonly status: ShoppingListStatus;
 }
 
-export interface GetRoutesRequest {
-  readonly items: string[];
-  readonly listId?: EntityId;
-  readonly latitude?: number;
-  readonly longitude?: number;
-  readonly limit?: number;
-  readonly catalog?: RouteHydrationCatalog;
+export interface RouteStoreSummary {
+  readonly id: EntityId;
+  readonly name: string;
+  readonly address: string;
+  readonly latitude: number | null;
+  readonly longitude: number | null;
 }
 
-export type GetRoutesResponse = Route[];
-
-export interface RouteHydrationCatalog {
-  readonly stores: Readonly<Record<number, Store>>;
-  readonly products: Readonly<Record<number, import('./models').Product>>;
+export interface RouteProductSummary {
+  readonly id: EntityId;
+  readonly name: string;
+  readonly store: EntityId;
+  readonly unit: string;
+  readonly modifiers: readonly string[];
+  readonly selectionPrice: number;
 }
 
-export interface RouteCandidateWire {
-  readonly stores: number[];
-  readonly products: number[];
+export interface RouteItemSelection extends ShoppingListItem {
+  readonly product: EntityId | null;
+}
+
+export interface RouteScoreComponents {
+  readonly productPrice: number;
+  readonly distanceCost: number;
+  readonly timeCost: number;
+  readonly storeCost: number;
+  readonly modifierPenalty: number;
+}
+
+export type RouteErrorCode = 'PARTIAL_ITEM_MATCH';
+
+export interface RouteCandidateResult {
+  readonly id: EntityId;
+  readonly stores: readonly RouteStoreSummary[];
+  readonly products: readonly RouteProductSummary[];
+  readonly selections: readonly RouteItemSelection[];
   readonly distance: number;
   readonly time: number;
   readonly score: number;
-  readonly productTags: Readonly<Record<number, string[]>>;
-  readonly selections: ReadonlyArray<{ readonly tag: string; readonly product: number | null }>;
   readonly productPrice: number;
-  readonly matchedTagCount: number;
-  readonly scoreComponents: {
-    readonly productPrice: number;
-    readonly distanceCost: number;
-    readonly timeCost: number;
-    readonly storeCost: number;
-  };
-  readonly errorCode?: 'PARTIAL_TAG_MATCH' | null;
+  readonly matchedItemCount: number;
+  readonly scoreComponents: RouteScoreComponents;
+  readonly errorCode: RouteErrorCode | null;
 }
 
-export interface RouteOptimizationResponseWire {
-  readonly candidates: RouteCandidateWire[];
-  readonly status: 'OPTIMAL' | 'FEASIBLE_TIMEOUT';
-  readonly requestedLimit: number;
-  readonly provenPrefixCount: number;
-  readonly elapsedSeconds: number;
-  readonly timeoutSeconds: number;
+export interface RouteCandidatesResponse {
+  readonly generation: number;
+  readonly candidates: readonly RouteCandidateResult[];
+}
+
+export type RouteOptimizationStatus =
+  | 'OPTIMAL'
+  | 'HEURISTIC'
+  | 'FEASIBLE_TIMEOUT';
+
+export type RouteOptimizationErrorCode =
+  | 'NO_ELIGIBLE_PRODUCTS'
+  | 'MATRIX_UNAVAILABLE'
+  | 'UNIT_CONVERSION_FAILED'
+  | 'OPTIMIZATION_FAILED';
+
+export type RouteCalculationStatus =
+  | 'IDLE'
+  | 'RUNNING'
+  | 'SUCCEEDED'
+  | 'FAILED';
+
+export interface RouteCalculationResponse {
+  readonly generation: number;
+  readonly status: RouteCalculationStatus;
+  readonly activeListCount: number;
+  readonly itemCount: number;
+  readonly resultCount: number;
+  readonly optimizerStatus: RouteOptimizationStatus | null;
+  readonly startedAt: number | null;
+  readonly completedAt: number | null;
+  readonly elapsedSeconds: number | null;
+  readonly timeoutSeconds: number | null;
+  readonly errorCode: RouteOptimizationErrorCode | null;
+  readonly detail: string | null;
 }
 
 export interface GetMapResponse {

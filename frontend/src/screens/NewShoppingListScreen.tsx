@@ -18,34 +18,26 @@ import {
   deleteShoppingList,
   getShoppingList,
   listCatalogTags,
+  listTagModifiers,
   replaceShoppingList,
+  startRouteCalculation,
   toApiError,
   updateShoppingListName,
 } from '../api';
 import { AppBottomNav, BackButton, DesignIcon } from '../components/common';
+import { ModifierSelector } from '../components/list/ModifierSelector';
 import type { RootStackParamList } from '../navigation/types';
 import type {
   CatalogTag,
   ShoppingListItemInput,
   ShoppingListResponse,
 } from '../types/api';
-import type { ShoppingListMetadataStore } from '../types/savedLists';
-import {
-  loadShoppingListMetadata,
-  metadataForList,
-  saveShoppingListMetadata,
-} from '../utils/savedListsStorage';
+import { formatTagLabel } from '../utils/tags';
 import { styles } from './NewShoppingListScreen.styles';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'NewShoppingList'>;
 
 const NEW_LIST_NAME = 'Untitled list';
-
-const emptyMetadataStore = (): ShoppingListMetadataStore => ({
-  collections: [],
-  lists: {},
-  version: 1,
-});
 
 const normalizeValue = (value: string): string =>
   value.trim().replace(/\s+/g, ' ');
@@ -78,6 +70,17 @@ const itemDetails = (
     : `${quantity} ${unit}`;
 };
 
+interface PersistDraftResult {
+  savedList: ShoppingListResponse;
+  routeCalculationTriggered: boolean;
+}
+
+interface ModifierOptionsState {
+  error: string | null;
+  isLoading: boolean;
+  options: readonly string[];
+}
+
 export function NewShoppingListScreen({ navigation, route }: Props) {
   const listId = route.params?.listId;
   const [catalog, setCatalog] = useState<readonly CatalogTag[]>([]);
@@ -85,17 +88,18 @@ export function NewShoppingListScreen({ navigation, route }: Props) {
   const [listName, setListName] = useState(route.params?.title ?? NEW_LIST_NAME);
   const [itemName, setItemName] = useState('');
   const [items, setItems] = useState<ShoppingListItemInput[]>([]);
+  const [expandedItemTag, setExpandedItemTag] = useState<string | null>(null);
+  const [modifierOptionsByTag, setModifierOptionsByTag] = useState<
+    Readonly<Record<string, ModifierOptionsState>>
+  >({});
   const [unresolvedItems, setUnresolvedItems] = useState<string[]>([]);
-  const [metadata, setMetadata] = useState<ShoppingListMetadataStore>(emptyMetadataStore);
-  const [selectedCollectionId, setSelectedCollectionId] = useState<string | null>(null);
-  const [newCollectionName, setNewCollectionName] = useState('');
-  const [isArchived, setIsArchived] = useState(false);
+  const [isActive, setIsActive] = useState(true);
   const [itemError, setItemError] = useState<string | null>(null);
   const [requestError, setRequestError] = useState<string | null>(null);
-  const [metadataError, setMetadataError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isMutating, setIsMutating] = useState(false);
   const mutationLocked = useRef(false);
+  const isMounted = useRef(true);
 
   const normalizedListName = useMemo(() => normalizeValue(listName), [listName]);
   const normalizedItemName = useMemo(() => normalizeTag(itemName), [itemName]);
@@ -117,12 +121,18 @@ export function NewShoppingListScreen({ navigation, route }: Props) {
     Boolean(normalizedListName) && items.length > 0 && !isLoading && !isMutating;
 
   useEffect(() => {
+    isMounted.current = true;
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
     let active = true;
 
     const loadData = async () => {
       setIsLoading(true);
       setRequestError(null);
-      setMetadataError(null);
 
       try {
         const [loadedCatalog, loadedList] = await Promise.all([
@@ -138,6 +148,7 @@ export function NewShoppingListScreen({ navigation, route }: Props) {
           setBaseline(loadedList);
           setListName(loadedList.name);
           setItems(cloneItems(loadedList.items));
+          setIsActive(loadedList.active);
         } else {
           const catalogTags = new Set(loadedCatalog.map((tag) => tag.tag));
           const initialCandidates = [
@@ -157,22 +168,6 @@ export function NewShoppingListScreen({ navigation, route }: Props) {
         if (active) {
           setRequestError(toApiError(error).message);
         }
-      }
-
-      try {
-        const loadedMetadata = await loadShoppingListMetadata();
-        if (active) {
-          setMetadata(loadedMetadata);
-          if (listId !== undefined) {
-            const listMetadata = metadataForList(loadedMetadata, listId);
-            setSelectedCollectionId(listMetadata.collectionId);
-            setIsArchived(listMetadata.archived);
-          }
-        }
-      } catch {
-        if (active) {
-          setMetadataError('List organization is unavailable on this device.');
-        }
       } finally {
         if (active) {
           setIsLoading(false);
@@ -185,6 +180,57 @@ export function NewShoppingListScreen({ navigation, route }: Props) {
       active = false;
     };
   }, [listId, route.params?.initialItems, route.params?.initialTags]);
+
+  const loadModifierOptions = useCallback(async (tag: string) => {
+    setModifierOptionsByTag((current) => ({
+      ...current,
+      [tag]: {
+        error: null,
+        isLoading: true,
+        options: current[tag]?.options ?? [],
+      },
+    }));
+    try {
+      const options = await listTagModifiers(tag);
+      if (isMounted.current) {
+        setModifierOptionsByTag((current) => ({
+          ...current,
+          [tag]: { error: null, isLoading: false, options },
+        }));
+      }
+    } catch (error: unknown) {
+      if (isMounted.current) {
+        setModifierOptionsByTag((current) => ({
+          ...current,
+          [tag]: {
+            error: toApiError(error).message,
+            isLoading: false,
+            options: current[tag]?.options ?? [],
+          },
+        }));
+      }
+    }
+  }, []);
+
+  const toggleModifierSelector = useCallback((tag: string) => {
+    setExpandedItemTag((current) => current === tag ? null : tag);
+    if (!modifierOptionsByTag[tag]) {
+      void loadModifierOptions(tag);
+    }
+  }, [loadModifierOptions, modifierOptionsByTag]);
+
+  const toggleItemModifier = useCallback((tag: string, modifier: string) => {
+    setItems((currentItems) => currentItems.map((item) => {
+      if (item.tag !== tag) return item;
+      const nextModifiers = new Set(item.modifiers ?? []);
+      if (nextModifiers.has(modifier)) {
+        nextModifiers.delete(modifier);
+      } else {
+        nextModifiers.add(modifier);
+      }
+      return { ...item, modifiers: [...nextModifiers].sort() };
+    }));
+  }, []);
 
   const addItem = useCallback(
     (value = itemName) => {
@@ -199,7 +245,7 @@ export function NewShoppingListScreen({ navigation, route }: Props) {
         return;
       }
       if (items.some((item) => item.tag === catalogTag.tag)) {
-        setItemError(`${catalogTag.tag} is already on this list.`);
+        setItemError(`${formatTagLabel(catalogTag.tag)} is already on this list.`);
         return;
       }
 
@@ -218,32 +264,9 @@ export function NewShoppingListScreen({ navigation, route }: Props) {
     [catalog, itemName, items],
   );
 
-  const persistMetadataForList = useCallback(
-    async (savedList: ShoppingListResponse) => {
-      const nextMetadata: ShoppingListMetadataStore = {
-        ...metadata,
-        lists: {
-          ...metadata.lists,
-          [String(savedList.id)]: {
-            archived: isArchived,
-            collectionId: selectedCollectionId,
-            favorite: metadataForList(metadata, savedList.id).favorite,
-            listId: savedList.id,
-          },
-        },
-      };
-      try {
-        await saveShoppingListMetadata(nextMetadata);
-        setMetadata(nextMetadata);
-        setMetadataError(null);
-      } catch {
-        setMetadataError('The list was saved, but local organization could not be updated.');
-      }
-    },
-    [isArchived, metadata, selectedCollectionId],
-  );
-
-  const persistDraft = useCallback(async (): Promise<ShoppingListResponse | null> => {
+  const persistDraft = useCallback(async (
+    options: { forceActive?: boolean } = {},
+  ): Promise<PersistDraftResult | null> => {
     if (!canPersist || mutationLocked.current) {
       return null;
     }
@@ -255,31 +278,39 @@ export function NewShoppingListScreen({ navigation, route }: Props) {
 
     try {
       let savedList: ShoppingListResponse;
+      let routeCalculationTriggered: boolean;
+      const desiredActive = options.forceActive ? true : isActive;
       if (!baseline) {
         savedList = await createShoppingList({
-          active: true,
+          active: desiredActive,
           items: cloneItems(items),
           name: normalizedListName,
         });
-      } else if (!itemsMatch(items, baseline.items)) {
-        savedList = await replaceShoppingList(baseline.id, {
-          active: baseline.active,
-          items: cloneItems(items),
-          name: normalizedListName,
-        });
-      } else if (normalizedListName !== baseline.name) {
-        savedList = await updateShoppingListName(baseline.id, {
-          name: normalizedListName,
-        });
+        routeCalculationTriggered = desiredActive;
       } else {
-        savedList = baseline;
+        const itemsChanged = !itemsMatch(items, baseline.items);
+        const activeChanged = desiredActive !== baseline.active;
+        routeCalculationTriggered = activeChanged || (itemsChanged && desiredActive);
+        if (itemsChanged || activeChanged) {
+        savedList = await replaceShoppingList(baseline.id, {
+          active: desiredActive,
+          items: cloneItems(items),
+          name: normalizedListName,
+        });
+        } else if (normalizedListName !== baseline.name) {
+          savedList = await updateShoppingListName(baseline.id, {
+            name: normalizedListName,
+          });
+        } else {
+          savedList = baseline;
+        }
       }
 
       setBaseline(savedList);
       setListName(savedList.name);
       setItems(cloneItems(savedList.items));
-      await persistMetadataForList(savedList);
-      return savedList;
+      setIsActive(savedList.active);
+      return { savedList, routeCalculationTriggered };
     } catch (error: unknown) {
       setRequestError(toApiError(error).message);
       return null;
@@ -287,55 +318,33 @@ export function NewShoppingListScreen({ navigation, route }: Props) {
       mutationLocked.current = false;
       setIsMutating(false);
     }
-  }, [baseline, canPersist, items, normalizedListName, persistMetadataForList]);
+  }, [baseline, canPersist, isActive, items, normalizedListName]);
 
   const saveForLater = useCallback(async () => {
-    const savedList = await persistDraft();
-    if (savedList) {
+    const result = await persistDraft();
+    if (result) {
       navigation.navigate('SavedLists');
     }
   }, [navigation, persistDraft]);
 
   const findBestRoute = useCallback(async () => {
-    const savedList = await persistDraft();
-    if (savedList) {
-      navigation.navigate('RouteResults', {
-        items: savedList.items.map((item) => item.tag),
-        listId: savedList.id,
-        listName: savedList.name,
-      });
+    const result = await persistDraft({ forceActive: true });
+    if (!result) return;
+    if (!result.routeCalculationTriggered) {
+      mutationLocked.current = true;
+      setIsMutating(true);
+      try {
+        await startRouteCalculation();
+      } catch (error: unknown) {
+        setRequestError(toApiError(error).message);
+        return;
+      } finally {
+        mutationLocked.current = false;
+        setIsMutating(false);
+      }
     }
+    navigation.navigate('Routes');
   }, [navigation, persistDraft]);
-
-  const addCollection = useCallback(async () => {
-    const name = normalizeValue(newCollectionName);
-    if (!name) {
-      return;
-    }
-    if (
-      metadata.collections.some(
-        (collection) => collection.name.toLowerCase() === name.toLowerCase(),
-      )
-    ) {
-      setMetadataError(`${name} already exists.`);
-      return;
-    }
-
-    const collection = { id: `collection-${Date.now()}`, name };
-    const nextMetadata = {
-      ...metadata,
-      collections: [...metadata.collections, collection],
-    };
-    try {
-      await saveShoppingListMetadata(nextMetadata);
-      setMetadata(nextMetadata);
-      setSelectedCollectionId(collection.id);
-      setNewCollectionName('');
-      setMetadataError(null);
-    } catch {
-      setMetadataError('The collection could not be saved on this device.');
-    }
-  }, [metadata, newCollectionName]);
 
   const confirmDelete = useCallback(() => {
     if (!baseline || isMutating) {
@@ -359,13 +368,6 @@ export function NewShoppingListScreen({ navigation, route }: Props) {
               setRequestError(null);
               try {
                 await deleteShoppingList(baseline.id);
-                const nextLists = { ...metadata.lists };
-                delete nextLists[String(baseline.id)];
-                try {
-                  await saveShoppingListMetadata({ ...metadata, lists: nextLists });
-                } catch {
-                  // The server deletion remains authoritative.
-                }
                 navigation.navigate('SavedLists');
               } catch (error: unknown) {
                 setRequestError(toApiError(error).message);
@@ -378,7 +380,7 @@ export function NewShoppingListScreen({ navigation, route }: Props) {
         },
       ],
     );
-  }, [baseline, isMutating, metadata, navigation]);
+  }, [baseline, isMutating, navigation]);
 
   if (isLoading) {
     return (
@@ -430,13 +432,13 @@ export function NewShoppingListScreen({ navigation, route }: Props) {
           <View accessibilityLabel="Catalog suggestions" style={styles.suggestions}>
             {matchingTags.map((tag) => (
               <Pressable
-                accessibilityLabel={`Add ${tag.tag}`}
+                accessibilityLabel={`Add ${formatTagLabel(tag.tag)}`}
                 accessibilityRole="button"
                 key={tag.tag}
                 onPress={() => addItem(tag.tag)}
                 style={({ pressed }) => [styles.suggestion, pressed && styles.buttonDisabled]}
               >
-                <Text style={styles.suggestionName}>{tag.tag}</Text>
+                <Text style={styles.suggestionName}>{formatTagLabel(tag.tag)}</Text>
                 <Text style={styles.suggestionDetails}>{tag.defaultQuantity} {tag.defaultUnit}</Text>
               </Pressable>
             ))}
@@ -445,29 +447,48 @@ export function NewShoppingListScreen({ navigation, route }: Props) {
         {itemError ? <Text accessibilityLiveRegion="polite" style={styles.feedbackText}>{itemError}</Text> : null}
 
         <View style={styles.designListCard}>
-          <View style={styles.listHeader}><Text style={styles.listTitle}>My List ({items.length})</Text><Pressable onPress={() => setItems([])}><Text style={styles.clearAll}>Clear All</Text></Pressable></View>
+          <View style={styles.listHeader}><Text style={styles.listTitle}>My List ({items.length})</Text><Pressable onPress={() => { setItems([]); setExpandedItemTag(null); }}><Text style={styles.clearAll}>Clear All</Text></Pressable></View>
           {items.length > 0 ? (
           <View>
-            {items.map((item) => (
-              <View key={item.tag} style={styles.itemRow}>
-                <View style={[styles.checkbox, styles.checkboxChecked]}>
-                  <Text style={styles.checkmark}>✓</Text>
+            {items.map((item) => {
+              const modifierState = modifierOptionsByTag[item.tag];
+              const itemLabel = formatTagLabel(item.tag);
+              return (
+              <View key={item.tag}>
+                <View style={styles.itemRow}>
+                  <View style={[styles.checkbox, styles.checkboxChecked]}>
+                    <Text style={styles.checkmark}>✓</Text>
+                  </View>
+                  <Text style={styles.itemName}>{itemLabel}</Text>
+                  <Text style={styles.itemPrice}>{itemDetails(item, catalog)}</Text>
+                  <Pressable
+                    accessibilityLabel={`Remove ${itemLabel}`}
+                    accessibilityRole="button"
+                    onPress={() => {
+                      setItems((currentItems) =>
+                        currentItems.filter((currentItem) => currentItem.tag !== item.tag),
+                      );
+                      setExpandedItemTag((current) => current === item.tag ? null : current);
+                    }}
+                  >
+                    <Text style={styles.editText}>Remove</Text>
+                  </Pressable>
                 </View>
-                <Text style={styles.itemName}>{item.tag}</Text>
-                <Text style={styles.itemPrice}>{itemDetails(item, catalog)}</Text>
-                <Pressable
-                  accessibilityLabel={`Remove ${item.tag}`}
-                  accessibilityRole="button"
-                  onPress={() =>
-                    setItems((currentItems) =>
-                      currentItems.filter((currentItem) => currentItem.tag !== item.tag),
-                    )
-                  }
-                >
-                  <Text style={styles.editText}>Remove</Text>
-                </Pressable>
+                <ModifierSelector
+                  disabled={isMutating}
+                  error={modifierState?.error ?? null}
+                  isExpanded={expandedItemTag === item.tag}
+                  isLoading={modifierState?.isLoading ?? false}
+                  itemTag={item.tag}
+                  onRetry={() => void loadModifierOptions(item.tag)}
+                  onToggle={() => toggleModifierSelector(item.tag)}
+                  onToggleModifier={(modifier) => toggleItemModifier(item.tag, modifier)}
+                  options={modifierState?.options ?? []}
+                  selected={item.modifiers ?? []}
+                />
               </View>
-            ))}
+              );
+            })}
           </View>
           ) : <Text style={styles.emptyList}>Add an item to begin your list.</Text>}
         </View>
@@ -500,54 +521,24 @@ export function NewShoppingListScreen({ navigation, route }: Props) {
 
         <View style={styles.tipCard}><BuildListMascot height={64} width={64} /><Text style={styles.tipText}><Text style={styles.tipStrong}>Choose catalog matches.</Text>{'\n'}Units and quantities use catalog defaults unless they came from a saved list.</Text></View>
 
-        <View style={styles.organizeCard}>
-          <Text style={styles.organizeTitle}>Organize on this device</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            <View style={styles.collectionRow}>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityState={{ selected: selectedCollectionId === null }}
-                onPress={() => setSelectedCollectionId(null)}
-                style={[styles.collectionChip, selectedCollectionId === null && styles.collectionChipSelected]}
-              >
-                <Text style={[styles.collectionChipText, selectedCollectionId === null && styles.collectionChipTextSelected]}>Unfiled</Text>
-              </Pressable>
-              {metadata.collections.map((collection) => (
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: selectedCollectionId === collection.id }}
-                  key={collection.id}
-                  onPress={() => setSelectedCollectionId(collection.id)}
-                  style={[styles.collectionChip, selectedCollectionId === collection.id && styles.collectionChipSelected]}
-                >
-                  <Text style={[styles.collectionChipText, selectedCollectionId === collection.id && styles.collectionChipTextSelected]}>{collection.name}</Text>
-                </Pressable>
-              ))}
-            </View>
-          </ScrollView>
-          <View style={styles.collectionInputRow}>
-            <TextInput
-              accessibilityLabel="New collection name"
-              onChangeText={setNewCollectionName}
-              onSubmitEditing={() => void addCollection()}
-              placeholder="New collection"
-              style={styles.collectionInput}
-              value={newCollectionName}
-            />
-            <Pressable accessibilityLabel="Add collection" accessibilityRole="button" disabled={!normalizeValue(newCollectionName)} onPress={() => void addCollection()} style={({ pressed }) => [styles.collectionAddButton, (!normalizeValue(newCollectionName) || pressed) && styles.buttonDisabled]}>
-              <Text style={styles.collectionAddText}>Add</Text>
-            </Pressable>
+        <View style={styles.activeCard}>
+          <View style={styles.activeCopy}>
+            <Text style={styles.activeTitle}>Active</Text>
+            <Text style={styles.activeDescription}>Include this list in route planning.</Text>
           </View>
-          <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: isArchived }} onPress={() => setIsArchived((current) => !current)} style={styles.archiveRow}>
-            <View style={[styles.checkbox, isArchived && styles.checkboxChecked]}>
-              {isArchived ? <Text style={styles.checkmark}>✓</Text> : null}
-            </View>
-            <Text style={styles.archiveText}>Archive this list</Text>
+          <Pressable
+            accessibilityLabel="Shopping list active"
+            accessibilityRole="switch"
+            accessibilityState={{ checked: isActive, disabled: isMutating }}
+            disabled={isMutating}
+            onPress={() => setIsActive((current) => !current)}
+            style={[styles.activeSwitch, isActive && styles.activeSwitchOn]}
+          >
+            <View style={[styles.switchThumb, isActive && styles.switchThumbOn]} />
           </Pressable>
         </View>
 
         {requestError ? <Text accessibilityLiveRegion="assertive" style={styles.feedbackText}>{requestError}</Text> : null}
-        {metadataError ? <Text accessibilityLiveRegion="polite" style={styles.metadataFeedback}>{metadataError}</Text> : null}
 
         <View style={styles.actionRow}>
           <Pressable accessibilityLabel="Save shopping list for later" accessibilityRole="button" accessibilityState={{ busy: isMutating, disabled: !canPersist }} disabled={!canPersist} onPress={() => void saveForLater()} style={({ pressed }) => [styles.button, styles.saveLaterButton, (!canPersist || pressed) && styles.buttonDisabled]}>

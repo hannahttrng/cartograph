@@ -1,23 +1,37 @@
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
-import type { MapRouteData, MapState } from '../../types/maps';
+import type {
+  ArcGISMapDiagnostic,
+  MapRouteData,
+  MapRouteError,
+  MapRouteResult,
+  MapState,
+} from '../../types/maps';
 import { ArcGISMapAdapter } from './ArcGISMapAdapter';
 import { RouteMapFallback } from './RouteMapFallback';
 
 interface RouteMapProps {
   mapData: MapRouteData;
-  onError: () => void;
-  onLoad: () => void;
-  onLoadStart: () => void;
+  onDiagnostic: (diagnostic: ArcGISMapDiagnostic) => void;
+  onMapError: (message: string) => void;
+  onMapLoadStart: () => void;
+  onMapReady: () => void;
+  onRouteError: (error: MapRouteError) => void;
+  onRouteSolved: (result: MapRouteResult) => void;
+  onRouteSolving: () => void;
   reloadKey: number;
   state: MapState;
 }
 
 export function RouteMap({
   mapData,
-  onError,
-  onLoad,
-  onLoadStart,
+  onDiagnostic,
+  onMapError,
+  onMapLoadStart,
+  onMapReady,
+  onRouteError,
+  onRouteSolved,
+  onRouteSolving,
   reloadKey,
   state,
 }: RouteMapProps) {
@@ -30,15 +44,19 @@ export function RouteMap({
       <ArcGISMapAdapter
         key={`${mapData.routeId}-${reloadKey}`}
         mapData={mapData}
-        onError={onError}
-        onLoad={onLoad}
-        onLoadStart={onLoadStart}
+        onDiagnostic={onDiagnostic}
+        onMapError={onMapError}
+        onMapLoadStart={onMapLoadStart}
+        onMapReady={onMapReady}
+        onRouteError={onRouteError}
+        onRouteSolved={onRouteSolved}
+        onRouteSolving={onRouteSolving}
       />
-      {state === 'loading' ? (
+      {state === 'loadingMap' || state === 'solvingRoute' ? (
         <View style={styles.loadingOverlay}>
           <ActivityIndicator color="#173F24" size="large" />
           <Text accessibilityLiveRegion="polite" style={styles.statusText}>
-            Loading map...
+            {state === 'loadingMap' ? 'Loading map...' : 'Calculating directions...'}
           </Text>
         </View>
       ) : null}

@@ -14,7 +14,7 @@ import type {
   CatalogTag,
   ShoppingListResponse,
 } from '../../../frontend/src/types/api';
-import * as metadataStorage from '../../../frontend/src/utils/savedListsStorage';
+import { formatTagLabel } from '../../../frontend/src/utils/tags';
 
 jest.mock('../../../frontend/src/api', () => {
   const actual = jest.requireActual('../../../frontend/src/api');
@@ -24,17 +24,10 @@ jest.mock('../../../frontend/src/api', () => {
     deleteShoppingList: jest.fn(),
     getShoppingList: jest.fn(),
     listCatalogTags: jest.fn(),
+    listTagModifiers: jest.fn(),
     replaceShoppingList: jest.fn(),
+    startRouteCalculation: jest.fn(),
     updateShoppingListName: jest.fn(),
-  };
-});
-
-jest.mock('../../../frontend/src/utils/savedListsStorage', () => {
-  const actual = jest.requireActual('../../../frontend/src/utils/savedListsStorage');
-  return {
-    ...actual,
-    loadShoppingListMetadata: jest.fn(),
-    saveShoppingListMetadata: jest.fn(),
   };
 });
 
@@ -43,7 +36,6 @@ jest.mock('../../../frontend/src/components/common/AppBottomNav', () => ({
 }));
 
 const mockedApi = jest.mocked(shoppingListApi);
-const mockedMetadata = jest.mocked(metadataStorage);
 
 const catalog: readonly CatalogTag[] = [
   { tag: 'bread', defaultUnit: 'loaf', defaultQuantity: 1, products: [] },
@@ -59,8 +51,6 @@ const serverList: ShoppingListResponse = {
     { tag: 'ground beef', modifiers: ['grass fed'], unit: 'lbs', quantity: 1.5 },
   ],
   active: false,
-  routes: [],
-  status: 'PENDING',
 };
 
 const createdList: ShoppingListResponse = {
@@ -68,8 +58,6 @@ const createdList: ShoppingListResponse = {
   name: 'Weekly staples',
   items: [{ tag: 'milk', modifiers: [], unit: 'gallon', quantity: 1 }],
   active: true,
-  routes: [],
-  status: 'PENDING',
 };
 
 interface Deferred<T> {
@@ -104,31 +92,45 @@ const renderScreen = (
 
 const addCatalogItem = async (tag: string) => {
   await fireEvent.changeText(screen.getByLabelText('Item name'), tag);
-  await fireEvent.press(screen.getByLabelText(`Add ${tag}`));
+  await fireEvent.press(screen.getByLabelText(`Add ${formatTagLabel(tag)}`));
 };
 
 beforeEach(() => {
   jest.resetAllMocks();
   mockedApi.listCatalogTags.mockResolvedValue(catalog);
+  mockedApi.listTagModifiers.mockImplementation(async (tag) => ({
+    milk: ['brand: horizon', 'in season', 'on sale', 'organic'],
+    'ground beef': ['grass fed', 'on sale', 'organic'],
+    bread: ["brand: dave's killer bread", 'gluten free', 'on sale', 'organic'],
+  })[tag] ?? []);
   mockedApi.getShoppingList.mockResolvedValue(serverList);
   mockedApi.createShoppingList.mockResolvedValue(createdList);
   mockedApi.replaceShoppingList.mockResolvedValue(serverList);
+  mockedApi.startRouteCalculation.mockResolvedValue({
+    generation: 1,
+    status: 'RUNNING',
+    activeListCount: 1,
+    itemCount: 2,
+    resultCount: 0,
+    optimizerStatus: null,
+    startedAt: 1,
+    completedAt: null,
+    elapsedSeconds: null,
+    timeoutSeconds: null,
+    errorCode: null,
+    detail: null,
+  });
   mockedApi.updateShoppingListName.mockResolvedValue(serverList);
   mockedApi.deleteShoppingList.mockResolvedValue(undefined);
-  mockedMetadata.loadShoppingListMetadata.mockResolvedValue({
-    version: 1,
-    collections: [],
-    lists: {},
-  });
-  mockedMetadata.saveShoppingListMetadata.mockResolvedValue(undefined);
 });
 
 describe('<NewShoppingListScreen />', () => {
   test('loads the catalog, resolves exact prefills, and exposes unmatched imports', async () => {
-    await renderScreen({ initialItems: ['Milk', 'Tomatoes'], initialTags: ['bread'], title: 'Recipe' });
+    await renderScreen({ initialItems: ['Milk', 'Tomatoes'], initialTags: ['bread', 'ground beef'], title: 'Recipe' });
 
-    expect(await screen.findByText('milk')).toBeOnTheScreen();
-    expect(screen.getByText('bread')).toBeOnTheScreen();
+    expect(await screen.findByText('Milk')).toBeOnTheScreen();
+    expect(screen.getByText('Bread')).toBeOnTheScreen();
+    expect(screen.getByText('Ground Beef')).toBeOnTheScreen();
     expect(screen.getByText('Tomatoes')).toBeOnTheScreen();
     expect(screen.getByText('Review imported items')).toBeOnTheScreen();
   });
@@ -144,7 +146,7 @@ describe('<NewShoppingListScreen />', () => {
     await addCatalogItem('milk');
     await fireEvent.changeText(screen.getByLabelText('Item name'), 'milk');
     await fireEvent.press(screen.getByLabelText('Add item'));
-    expect(screen.getByText('milk is already on this list.')).toBeOnTheScreen();
+    expect(screen.getByText('Milk is already on this list.')).toBeOnTheScreen();
   });
 
   test('creates a structured list and returns to the server list landing page', async () => {
@@ -161,11 +163,10 @@ describe('<NewShoppingListScreen />', () => {
         name: 'Weekly staples',
       });
     });
-    expect(mockedMetadata.saveShoppingListMetadata).toHaveBeenCalled();
     expect(navigation.navigate).toHaveBeenCalledWith('SavedLists');
   });
 
-  test('saves before opening fixture route results with the numeric server ID', async () => {
+  test('saves an active list before opening global Routes without a duplicate run', async () => {
     await renderScreen();
     await screen.findByText('Add an item to begin your list.');
     await fireEvent.changeText(screen.getByLabelText('Shopping list name'), 'Weekly staples');
@@ -173,12 +174,39 @@ describe('<NewShoppingListScreen />', () => {
     await fireEvent.press(screen.getByLabelText('Find best route'));
 
     await waitFor(() => {
-      expect(navigation.navigate).toHaveBeenCalledWith('RouteResults', {
-        items: ['milk'],
-        listId: 9,
-        listName: 'Weekly staples',
+      expect(navigation.navigate).toHaveBeenCalledWith('Routes');
+    });
+    expect(mockedApi.startRouteCalculation).not.toHaveBeenCalled();
+  });
+
+  test('activates an inactive saved list before opening Routes', async () => {
+    mockedApi.replaceShoppingList.mockResolvedValueOnce({ ...serverList, active: true });
+    await renderScreen({ listId: 7 });
+    await screen.findByDisplayValue('Weekend');
+
+    await fireEvent.press(screen.getByLabelText('Find best route'));
+
+    await waitFor(() => {
+      expect(mockedApi.replaceShoppingList).toHaveBeenCalledWith(7, {
+        active: true,
+        items: serverList.items,
+        name: 'Weekend',
       });
     });
+    expect(mockedApi.startRouteCalculation).not.toHaveBeenCalled();
+    expect(navigation.navigate).toHaveBeenCalledWith('Routes');
+  });
+
+  test('explicitly reruns routes for an unchanged active list', async () => {
+    mockedApi.getShoppingList.mockResolvedValueOnce({ ...serverList, active: true });
+    await renderScreen({ listId: 7 });
+    await screen.findByDisplayValue('Weekend');
+
+    await fireEvent.press(screen.getByLabelText('Find best route'));
+
+    await waitFor(() => expect(mockedApi.startRouteCalculation).toHaveBeenCalledTimes(1));
+    expect(mockedApi.replaceShoppingList).not.toHaveBeenCalled();
+    expect(navigation.navigate).toHaveBeenCalledWith('Routes');
   });
 
   test('uses PATCH for a name-only edit', async () => {
@@ -215,6 +243,55 @@ describe('<NewShoppingListScreen />', () => {
           { tag: 'ground beef', modifiers: ['grass fed'], unit: 'lbs', quantity: 1.5 },
           { tag: 'bread', modifiers: [] },
         ],
+        name: 'Weekend',
+      });
+    });
+  });
+
+  test('loads, selects, and saves Product modifiers through the item PUT path', async () => {
+    const activeList = { ...serverList, active: true };
+    mockedApi.getShoppingList.mockResolvedValueOnce(activeList);
+    mockedApi.replaceShoppingList.mockResolvedValueOnce({
+      ...activeList,
+      items: [
+        { tag: 'milk', modifiers: ['on sale', 'organic'], unit: 'gallon', quantity: 2 },
+        activeList.items[1],
+      ],
+    });
+    await renderScreen({ listId: 7 });
+    await screen.findByDisplayValue('Weekend');
+
+    await fireEvent.press(screen.getByLabelText('Modifiers for Milk: Organic'));
+    await waitFor(() => expect(mockedApi.listTagModifiers).toHaveBeenCalledWith('milk'));
+    await fireEvent.press(screen.getByLabelText('On Sale modifier for Milk'));
+    await fireEvent.press(screen.getByLabelText('Save shopping list for later'));
+
+    await waitFor(() => {
+      expect(mockedApi.replaceShoppingList).toHaveBeenCalledWith(7, {
+        active: true,
+        items: [
+          { tag: 'milk', modifiers: ['on sale', 'organic'], unit: 'gallon', quantity: 2 },
+          { tag: 'ground beef', modifiers: ['grass fed'], unit: 'lbs', quantity: 1.5 },
+        ],
+        name: 'Weekend',
+      });
+    });
+    expect(mockedApi.startRouteCalculation).not.toHaveBeenCalled();
+  });
+
+  test('saves Active changes through PUT', async () => {
+    mockedApi.replaceShoppingList.mockResolvedValueOnce({ ...serverList, active: true });
+    await renderScreen({ listId: 7 });
+    await screen.findByDisplayValue('Weekend');
+
+    expect(screen.getByLabelText('Shopping list active').props.accessibilityState.checked).toBe(false);
+    await fireEvent.press(screen.getByLabelText('Shopping list active'));
+    await fireEvent.press(screen.getByLabelText('Save shopping list for later'));
+
+    await waitFor(() => {
+      expect(mockedApi.replaceShoppingList).toHaveBeenCalledWith(7, {
+        active: true,
+        items: serverList.items,
         name: 'Weekend',
       });
     });

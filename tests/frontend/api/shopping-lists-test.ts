@@ -6,14 +6,19 @@ import {
   getShoppingList,
   listShoppingLists,
   replaceShoppingList,
+  updateShoppingListActive,
   updateShoppingListName,
 } from '../../../frontend/src/api/lists';
-import { listCatalogTags } from '../../../frontend/src/api/catalog';
+import {
+  listCatalogTags,
+  listTagModifiers,
+} from '../../../frontend/src/api/catalog';
 import { apiClient, ApiError, toApiError } from '../../../frontend/src/api/client';
 import { mockApi } from '../../../frontend/src/api/mock';
 import {
   parseCatalogTags,
   parseShoppingList,
+  parseTagModifiers,
 } from '../../../frontend/src/api/shoppingListParsers';
 import contractFixture from '../../fixtures/shopping-list-contract.json';
 
@@ -64,15 +69,48 @@ describe('ShoppingList contract concurrence', () => {
     expect(get).toHaveBeenCalledWith('/api/v1/tags');
   });
 
-  test('uses PUT for replacement and PATCH for name-only updates', async () => {
+  test('loads encoded Tag-wide modifiers from the implemented path', async () => {
+    const modifiers = ['grass fed', 'on sale', 'organic'];
+    const get = jest.spyOn(apiClient, 'get').mockResolvedValue({ data: modifiers });
+
+    await expect(listTagModifiers('ground beef')).resolves.toEqual(modifiers);
+    expect(get).toHaveBeenCalledWith(
+      '/api/v1/tags/ground%20beef/modifiers',
+    );
+  });
+
+  test.each([
+    [['organic', 'on sale'], 'unordered Tag modifiers'],
+    [['organic', 'organic'], 'duplicate Tag modifiers'],
+    [['Organic'], 'invalid Tag modifiers'],
+  ])('rejects malformed modifier responses', (payload, message) => {
+    expect(() => parseTagModifiers(payload)).toThrow(message);
+  });
+
+  test('keeps mock modifier lookup contract-compatible', () => {
+    const modifiers = mockApi.listTagModifiers('ground beef');
+
+    expect(parseTagModifiers(modifiers)).toEqual([
+      'grass fed',
+      'on sale',
+      'organic',
+    ]);
+    expect(() => mockApi.listTagModifiers('missing')).toThrow('Tag not found');
+  });
+
+  test('uses PUT for replacement and PATCH for focused updates', async () => {
     const putResponse = {
       ...expectedResponse,
       name: 'Restocked',
       active: true,
     };
     const patchResponse = { ...putResponse, name: 'Renamed' };
+    const activeResponse = { ...patchResponse, active: false };
     const put = jest.spyOn(apiClient, 'put').mockResolvedValue({ data: putResponse });
-    const patch = jest.spyOn(apiClient, 'patch').mockResolvedValue({ data: patchResponse });
+    const patch = jest
+      .spyOn(apiClient, 'patch')
+      .mockResolvedValueOnce({ data: patchResponse })
+      .mockResolvedValueOnce({ data: activeResponse });
     const replacement = {
       name: 'Restocked',
       items: expectedResponse.items,
@@ -83,9 +121,15 @@ describe('ShoppingList contract concurrence', () => {
     await expect(
       updateShoppingListName(1, { name: 'Renamed' }),
     ).resolves.toEqual(patchResponse);
+    await expect(
+      updateShoppingListActive(1, { active: false }),
+    ).resolves.toEqual(activeResponse);
     expect(put).toHaveBeenCalledWith('/api/v1/shopping-lists/1', replacement);
     expect(patch).toHaveBeenCalledWith('/api/v1/shopping-lists/1/name', {
       name: 'Renamed',
+    });
+    expect(patch).toHaveBeenCalledWith('/api/v1/shopping-lists/1/active', {
+      active: false,
     });
   });
 
@@ -108,7 +152,7 @@ describe('ShoppingList contract concurrence', () => {
   test.each([
     [{ ...expectedResponse, id: '1' }, 'invalid ShoppingList ID'],
     [{ ...expectedResponse, items: [...expectedResponse.items, expectedResponse.items[0]] }, 'duplicate ShoppingList item tags'],
-    [{ ...expectedResponse, routes: [9], status: 'PENDING' }, 'inconsistent ShoppingList routes'],
+    [{ ...expectedResponse, active: 'yes' }, 'invalid ShoppingList response'],
   ])('rejects malformed or inconsistent responses', (payload, message) => {
     expect(() => parseShoppingList(payload)).toThrow(message);
   });

@@ -9,7 +9,7 @@ from backend.tools.export_csv import build_parser, export_catalog_to_csv, main
 
 EXPECTED_HEADERS = {
     "tags": ["tag", "default_unit", "default_quantity"],
-    "stores": ["id", "name", "address"],
+    "stores": ["id", "name", "address", "latitude", "longitude"],
     "products": [
         "id",
         "name",
@@ -153,6 +153,8 @@ def test_export_writes_catalog_csvs_with_stable_rows(tmp_path: Path) -> None:
         "default_quantity": "1.5",
     }
     assert stores[0]["name"] == 'Caf\u00e9, "Centro"'
+    assert stores[0]["latitude"] == ""
+    assert stores[0]["longitude"] == ""
     assert [row["id"] for row in products] == ["10", "20"]
     assert products[0]["current_price_date"] == "300.0"
     assert products[0]["current_price"] == "2.99"

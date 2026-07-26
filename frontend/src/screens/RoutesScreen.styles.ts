@@ -8,6 +8,7 @@ export const styles = StyleSheet.create({
     flex: 1,
   },
   content: {
+    flexGrow: 1,
     paddingBottom: spacing.xl,
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.lg,
@@ -25,8 +26,26 @@ export const styles = StyleSheet.create({
     color: colors.textMuted,
     marginTop: spacing.xxs,
   },
+  filters: {
+    marginTop: spacing.md,
+  },
   banner: {
     marginTop: spacing.md,
+  },
+  recalculateButton: {
+    marginTop: spacing.sm,
+  },
+  statePanel: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 220,
+    padding: spacing.lg,
+  },
+  stateText: {
+    ...typography.body,
+    color: colors.textMuted,
+    marginTop: spacing.sm,
+    textAlign: 'center',
   },
   separator: {
     height: spacing.sm,

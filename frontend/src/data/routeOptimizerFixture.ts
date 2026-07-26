@@ -7,14 +7,14 @@ export interface SeededRoute {
 
 const storesByFixtureId: Record<1 | 2, Store> = {
   1: {
-    name: 'Cartograph Market',
-    address: '100 Main Street, Redlands, CA',
+    name: 'Sprouts',
+    address: '560 W Stuart Ave, Redlands, CA 92374',
     latitude: 34.056,
     longitude: -117.195,
   },
   2: {
-    name: 'Fresh Fields',
-    address: '220 Citrus Avenue, Redlands, CA',
+    name: 'Trader Joes',
+    address: '552 Orange St, Redlands, CA 92374',
     latitude: 34.0612,
     longitude: -117.1884,
   },
@@ -55,6 +55,17 @@ const productsByFixtureId: Record<10 | 20 | 30 | 40, Product> = {
   },
 };
 
+export const arcGISRouteDemoFixture: SeededRoute = {
+  id: 'arcgis-live-demo',
+  route: {
+    stores: [storesByFixtureId[1], storesByFixtureId[2]],
+    products: [productsByFixtureId[30], productsByFixtureId[20]],
+    distance: 1.88,
+    time: 9.7,
+    score: 17.641667,
+  },
+};
+
 export const routeOptimizerFixture: readonly SeededRoute[] = [
   {
     id: 'optimizer-route-1',
@@ -76,14 +87,5 @@ export const routeOptimizerFixture: readonly SeededRoute[] = [
       score: 16.316667,
     },
   },
-  {
-    id: 'optimizer-route-3',
-    route: {
-      stores: [storesByFixtureId[1], storesByFixtureId[2]],
-      products: [productsByFixtureId[30], productsByFixtureId[20]],
-      distance: 4.25,
-      time: 11,
-      score: 17.641667,
-    },
-  },
+  arcGISRouteDemoFixture,
 ];
