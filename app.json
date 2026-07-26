@@ -16,6 +16,9 @@
     "owner": "hannahtruongs-team",
     "android": {
       "package": "com.cartograph.app"
-    }
+    },
+    "plugins": [
+      "expo-font"
+    ]
   }
 }

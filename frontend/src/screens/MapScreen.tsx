@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
+import { Linking, Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { getMap, toApiError } from '../api';
 import { RouteMap } from '../components/map/RouteMap';
+import { ARCGIS_TEST_WEB_MAP_SHARE_URL } from '../constants/maps';
 import type { RootStackParamList } from '../navigation/types';
 import type { MapRouteData, MapState } from '../types/maps';
 import type { Store } from '../types/models';
@@ -14,7 +14,7 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Map'>;
 
 export function MapScreen({ route }: Props) {
   const { route: selectedRoute, routeId } = route.params;
-  const fallbackMapData = useMemo<MapRouteData>(
+  const mapData = useMemo<MapRouteData>(
     () => ({
       routeId,
       stores: selectedRoute.stores,
@@ -29,70 +29,75 @@ export function MapScreen({ route }: Props) {
     }),
     [routeId, selectedRoute],
   );
-  const [mapData, setMapData] = useState<MapRouteData>(fallbackMapData);
-  const [isLoading, setIsLoading] = useState(true);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [mapState, setMapState] = useState<MapState>('loading');
+  const [reloadKey, setReloadKey] = useState(0);
 
-  const loadMap = useCallback(async () => {
-    setIsLoading(true);
-    setErrorMessage(null);
+  const retryMap = useCallback(() => {
+    setMapState('loading');
+    setReloadKey((currentKey) => currentKey + 1);
+  }, []);
 
+  const openInBrowser = useCallback(async () => {
     try {
-      const response = await getMap(routeId);
-      setMapData({
-        ...response,
-        stores: response.stores.length > 0 ? response.stores : fallbackMapData.stores,
-      });
-    } catch (error: unknown) {
-      setMapData(fallbackMapData);
-      setErrorMessage(toApiError(error).message);
-    } finally {
-      setIsLoading(false);
+      await Linking.openURL(ARCGIS_TEST_WEB_MAP_SHARE_URL);
+    } catch {
+      setMapState('mapUnavailable');
     }
-  }, [fallbackMapData, routeId]);
+  }, []);
 
-  useEffect(() => {
-    void loadMap();
-  }, [loadMap]);
+  const summary = `${selectedRoute.stores.length} ${selectedRoute.stores.length === 1 ? 'stop' : 'stops'} - ${selectedRoute.distance.toFixed(1)} mi - ${Math.round(selectedRoute.time)} min`;
+  const routeMap = (
+    <RouteMap
+      mapData={mapData}
+      onError={() => setMapState('mapUnavailable')}
+      onLoad={() => setMapState('routeSelected')}
+      onLoadStart={() => setMapState('loading')}
+      reloadKey={reloadKey}
+      state={mapState}
+    />
+  );
 
-  const mapState: MapState = isLoading
-    ? 'loading'
-    : errorMessage
-      ? 'mapUnavailable'
-      : 'routeSelected';
+  if (mapState === 'mapUnavailable') {
+    return (
+      <SafeAreaView edges={['bottom']} style={styles.screen}>
+        <ScrollView contentContainerStyle={styles.fallbackContent}>
+          <View style={styles.summaryBand}>
+            <Text accessibilityRole="header" style={styles.title}>Route map</Text>
+            <Text style={styles.subtitle}>{summary}</Text>
+          </View>
+          <Text accessibilityLiveRegion="assertive" style={styles.errorText}>
+            The interactive map is unavailable. Your route details are shown below.
+          </Text>
+          {routeMap}
+          <View style={styles.actionRow}>
+            <Pressable
+              accessibilityRole="button"
+              onPress={retryMap}
+              style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}
+            >
+              <Text style={styles.secondaryButtonText}>Retry</Text>
+            </Pressable>
+            <Pressable
+              accessibilityLabel="Open ArcGIS map in browser"
+              accessibilityRole="button"
+              onPress={() => void openInBrowser()}
+              style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}
+            >
+              <Text style={styles.secondaryButtonText}>Open in browser</Text>
+            </Pressable>
+          </View>
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView edges={['bottom']} style={styles.screen}>
-      <ScrollView contentContainerStyle={styles.content}>
-        <Text accessibilityRole="header" style={styles.title}>
-          Route Overview
-        </Text>
-        <Text style={styles.subtitle}>
-          Your selected shopping route is listed below.
-        </Text>
-
-        {isLoading ? (
-          <View style={styles.status}>
-            <ActivityIndicator color="#243B53" />
-            <Text accessibilityLiveRegion="polite" style={styles.statusText}>
-              Loading route data...
-            </Text>
-          </View>
-        ) : null}
-
-        <RouteMap mapData={mapData} state={mapState} />
-
-        {errorMessage ? (
-          <View style={styles.errorState}>
-            <Text accessibilityLiveRegion="assertive" style={styles.errorText}>
-              {errorMessage}
-            </Text>
-            <Pressable accessibilityRole="button" onPress={loadMap} style={styles.retryButton}>
-              <Text style={styles.retryButtonText}>Try Again</Text>
-            </Pressable>
-          </View>
-        ) : null}
-      </ScrollView>
+      <View style={styles.summaryBand}>
+        <Text accessibilityRole="header" style={styles.title}>Route map</Text>
+        <Text style={styles.subtitle}>{summary}</Text>
+      </View>
+      <View style={styles.mapSurface}>{routeMap}</View>
     </SafeAreaView>
   );
 }

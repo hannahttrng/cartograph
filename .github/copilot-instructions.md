@@ -9,6 +9,25 @@ Use `README.md` for product behavior, setup details, and public API examples. Ke
 - Run commands from the repository root in Windows PowerShell unless a command says otherwise.
 - SQLite is part of Python's standard library and is intentionally absent from `backend/requirements.txt`.
 
+## Frontend Ownership And Flow
+
+- `frontend/App.tsx::App()` is the frontend composition root. It wraps the application in `SafeAreaProvider` and `NavigationContainer`, then renders `RootNavigator`.
+- `frontend/src/navigation/RootNavigator.tsx` owns stack-only detail screens around `MainTabNavigator`, which owns the persistent Home, Lists, Routes, Carter, and Account tabs. `frontend/src/navigation/types.ts` owns both parameter lists and their composite screen props; update the navigators, parameter types, and every affected caller together.
+- `frontend/src/screens/` owns user journeys, local React state, and loading, success, empty, and error rendering. Keep HTTP configuration and endpoint paths in `frontend/src/api/` rather than calling Axios or `fetch` directly from screens.
+- `frontend/src/api/client.ts` owns the shared Axios instance, transport-error conversion, timeout defaults, and path-ID encoding. Endpoint modules own live/mock selection and response adaptation; do not create a second HTTP client for a feature.
+- `frontend/src/constants/config.ts` owns `API_BASE_URL`, `USE_MOCK_DATA`, and `API_TIMEOUT_MS`. The base URL intentionally excludes `/api/v1`; integrated endpoint modules must use the complete versioned path.
+- Keep the frontend type families distinct: `types/api.ts` describes frontend HTTP payloads, `types/models.ts` contains denormalized UI models, `types/maps.ts` contains map-view models, and `types/savedLists.ts` contains device-local persistence models. Similar names across these files do not make the shapes interchangeable.
+- `frontend/src/utils/savedListsStorage.ts` is the AsyncStorage boundary for local collections and saved lists. Screens should not access AsyncStorage directly, and these records must not be treated as persisted backend ShoppingLists.
+- Shared application state currently consists of local React hooks and typed navigation parameters. Introduce a global state provider only when a concrete cross-screen ownership or synchronization requirement calls for one.
+
+## Frontend Contract Boundaries
+
+- `backend/types.py` remains the backend wire-contract source of truth. `backend/queries.ts` is an independent strict TypeScript mirror with runtime parsers and a `fetch` client, but it is outside the root `tsconfig.json` include list and is not imported by the React Native app.
+- `frontend/src/types/api.ts` explicitly mirrors the integrated Tag and ShoppingList wire contracts; route request and map-era payloads remain separate. `frontend/src/types/models.ts` defines UI-only Store, Product, and Route objects with coordinates and nested objects; these are not mirrors of backend entities or RouteCandidates.
+- `frontend/src/api/lists.ts` and `catalog.ts` call the implemented `/api/v1/shopping-lists` and `/api/v1/tags` endpoints and runtime-validate both live and mock responses through `shoppingListParsers.ts`. `routes.ts` and `maps.ts` remain mock-era adapters whose live paths are not implemented by FastAPI.
+- `frontend/src/api/assistant.ts` is different: it calls the implemented `/api/v1/assistant/recipe-import` and `/api/v1/assistant/chat` endpoints, does not use `USE_MOCK_DATA`, and uses a 45-second timeout. Those endpoints return `503` when the optional Carter provider is not configured.
+- `frontend/src/api/client.ts::ApiError.code` represents Axios or local transport codes; `domainCode` separately preserves backend `errorCode` response data.
+
 ## Backend Ownership And Flow
 
 - `backend/index.py::create_app()` is the application composition root. Its lifespan initializes the database and stores the database path, optional travel-matrix provider, score policy, and solver settings on `app.state`.
@@ -68,6 +87,39 @@ Typical impact by change type:
 - Enum/lifecycle: Python enum, TypeScript union/parser, SQL `CHECK`/transition logic, controllers, tests, and README.
 - Candidate/score structure: types, optimizer construction/ranking, controller response, `backend/queries.ts` parsing, optimizer/API tests, and any candidate rendering. Keep product-assignment variants flat unless all of these layers change together.
 
+## Required Frontend Integration Workflow
+
+Before connecting a React Native flow to a backend endpoint:
+
+1. Verify the implemented method, full `/api/v1/...` path, status codes, and error mapping in `backend/controllers.py`. Inspect the request/response models and aliases in `backend/types.py`, plus the applicable interface and runtime parser in `backend/queries.ts`.
+2. Use the shared `frontend/src/api/client.ts::apiClient` and a complete versioned endpoint path. Do not make a URL-only swap while retaining incompatible mock payloads.
+3. Add explicit camelCase wire types in `frontend/src/types/api.ts` and validate or adapt the untrusted response at the API boundary. TypeScript interfaces and Axios generic casts alone are not runtime validation; reuse the behavior of the applicable `backend/queries.ts` parser or implement an equivalent frontend parser.
+4. Preserve purposeful model boundaries. Convert wire entities into UI view models in an API adapter or utility instead of changing local saved-list, navigation, map, and backend entity shapes into one shared interface.
+5. When an endpoint supports mock mode, update `frontend/src/api/mock.ts` to emit the same wire contract and send mock and live responses through the same parser/adapter. A UI-only fixture is not contract-parity evidence.
+6. Update `RootStackParamList`, navigation callers, and consuming screens together. Cover loading, success, empty, retryable error, and disabled states, and preserve the established accessibility semantics.
+7. Parse backend `{ detail, errorCode? }` errors separately from Axios transport errors. Preserve machine-readable `errorCode` for branching while displaying `detail` to the user.
+8. Update focused backend/API tests, frontend checks, and `README.md` examples whenever externally visible behavior changes.
+
+### Current Integration Gaps
+
+Resolve each applicable group as one integration slice rather than hiding it behind casts or fallback data:
+
+- Backend ShoppingList IDs and their contract-parity mock IDs are positive numbers. Fixture route and `Map` navigation IDs remain strings in the separate UI model.
+- `ShoppingListScreen` sends structured `{ tag, modifiers, unit, quantity }` items and preserves resolved metadata when editing. The separate device-local `NewShoppingListScreen` still uses its local saved-list shape and is not backend synchronization.
+- Route optimization requires `latitude` and `longitude`, but the frontend currently has no location permission, location service, or manual-coordinate input flow.
+- RouteOptimizationResponse candidates are already coverage-first and best-first, with lower score preferred after coverage. Preserve server order; the fixture-backed `RoutesScreen` already follows this ordering.
+- RouteCandidates contain Store and Product IDs. The backend exposes no Product or Store read endpoint yet, so the current nested UI Route model cannot be hydrated from the live API without an additional catalog contract.
+- The backend exposes no map/polyline endpoint and Store persistence has no coordinates. `ArcGISMapAdapter` loads the public `CARTograph_2` Web Map through a WebView; its fallback is built from fixture coordinates.
+- On-demand route candidates are transient. Fetching them must not imply that Routes were persisted or that ShoppingList status, revision, or route ownership changed.
+
+## Frontend Implementation Conventions
+
+- Keep navigation type-safe through `RootStackParamList`; do not pass untyped route payloads or duplicate route-name unions in screens.
+- Keep request orchestration in event handlers, effects, or focused hooks and HTTP mechanics in `frontend/src/api/`. Screens should consume parsed domain results and `ApiError`, not Axios response objects.
+- Follow neighboring styling organization: use `StyleSheet.create`, and retain or introduce a sibling `.styles.ts` file when a screen's styles are substantial. Do not perform unrelated palette or layout rewrites during integration work.
+- Preserve the existing safe-area and accessibility baseline: `SafeAreaView`, meaningful roles and labels, `accessibilityState` for selected/busy/disabled controls, polite live regions for progress, and assertive live regions for errors.
+- Continue to render explicit loading, empty, unavailable, and retry states. A mock fallback must not silently make a failed live integration appear successful.
+
 ## Contract Invariants
 
 - Display text (Product/Store names, Store addresses, ShoppingList names) is stripped while preserving case. Catalog Tags, Product modifiers, units, and route-selection tags are stripped and lowercased. Preserve meaningful internal spaces.
@@ -93,6 +145,8 @@ Do not present these as complete unless the implementation and tests have actual
 - A scheduled worker that claims pending ShoppingLists and persists ranked Routes.
 - Product, Store, or persisted Route CRUD endpoints.
 - Direct integration between `backend/queries.ts` and the current React Native API modules.
+- Live React Native route-candidate integration, including location acquisition and Product/Store hydration for RouteCandidate rendering.
+- A backend map/polyline endpoint and road-following ArcGIS route rendering; the current frontend adapter displays a public, non-route-specific test Web Map.
 
 ## Build And Validation
 
@@ -132,7 +186,11 @@ npx --yes --package typescript tsc --ignoreConfig --noEmit --strict --target ES2
 Run the Expo/frontend typecheck separately:
 
 ```powershell
+npm run test:frontend -- --runInBand
+npm run typecheck:tests
 npm run typecheck
 ```
 
-`npm run typecheck` follows the root `tsconfig.json` and does not compile `backend/queries.ts`; passing one TypeScript check does not replace the other.
+`npm run typecheck` follows the strict root `tsconfig.json` and covers `index.ts`, `frontend/App.tsx`, and `frontend/src/**/*.ts(x)`. It does not compile `backend/queries.ts`; passing one TypeScript check does not replace the other.
+
+There is currently no frontend lint script. Frontend Jest tests use `jest-expo` and React Native Testing Library; the shared ShoppingList JSON fixture is asserted by both pytest and Jest. For frontend behavior changes, also run the app with `npm start` and smoke-test the affected loading, success, empty, and error states. For integration changes, exercise both supported mock behavior and the implemented live backend path; mock-only success does not validate a live integration.

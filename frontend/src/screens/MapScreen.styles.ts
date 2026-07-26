@@ -2,56 +2,61 @@ import { StyleSheet } from 'react-native';
 
 export const styles = StyleSheet.create({
   screen: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#F7F9F6',
     flex: 1,
   },
-  content: {
-    padding: 20,
-    paddingBottom: 36,
+  summaryBand: {
+    backgroundColor: '#FFFFFF',
+    borderBottomColor: '#DCE3DC',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 18,
+    paddingVertical: 14,
   },
   title: {
-    color: '#1F2933',
-    fontSize: 24,
-    fontWeight: '600',
+    color: '#17231A',
+    fontSize: 21,
+    fontWeight: '700',
   },
   subtitle: {
-    color: '#52606D',
-    fontSize: 15,
-    lineHeight: 22,
-    marginTop: 6,
-  },
-  status: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    marginTop: 24,
-  },
-  statusText: {
-    color: '#52606D',
+    color: '#667168',
     fontSize: 14,
-    marginLeft: 10,
+    marginTop: 3,
   },
-  errorState: {
-    marginTop: 12,
+  mapSurface: {
+    flex: 1,
+  },
+  fallbackContent: {
+    paddingBottom: 28,
   },
   errorText: {
-    color: '#B42318',
+    color: '#9A3412',
     fontSize: 14,
     lineHeight: 20,
+    marginHorizontal: 18,
+    marginVertical: 16,
   },
-  retryButton: {
+  actionRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginHorizontal: 18,
+    marginTop: 16,
+  },
+  secondaryButton: {
     alignItems: 'center',
-    alignSelf: 'flex-start',
-    borderColor: '#243B53',
-    borderRadius: 8,
+    borderColor: '#173F24',
+    borderRadius: 6,
     borderWidth: 1,
+    flex: 1,
     justifyContent: 'center',
-    marginTop: 12,
-    minHeight: 40,
-    paddingHorizontal: 14,
+    minHeight: 48,
+    paddingHorizontal: 12,
   },
-  retryButtonText: {
-    color: '#243B53',
-    fontSize: 14,
-    fontWeight: '600',
+  secondaryButtonText: {
+    color: '#173F24',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  pressed: {
+    opacity: 0.72,
   },
 });

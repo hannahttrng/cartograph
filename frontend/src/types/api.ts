@@ -1,21 +1,57 @@
 import type { Route, Store } from './models';
 
-/**
- * Eric's endpoint documentation does not yet define the fields in list
- * request/response bodies. These interfaces keep those payloads typed as JSON
- * objects without imposing a frontend-owned backend contract. They can be
- * extended when the backend publishes the final list schema.
- */
-export interface CreateListRequest {
-  readonly [key: string]: unknown;
+export type EntityId = number;
+
+export interface CatalogTag {
+  readonly tag: string;
+  readonly defaultUnit: string;
+  readonly defaultQuantity: number;
+  readonly products: readonly EntityId[];
 }
 
-export interface UpdateListRequest {
-  readonly [key: string]: unknown;
+export interface ShoppingListItemInput {
+  readonly tag: string;
+  readonly modifiers?: readonly string[];
+  readonly unit?: string | null;
+  readonly quantity?: number | null;
 }
 
-export interface ListResponse {
-  readonly [key: string]: unknown;
+export interface ShoppingListItem {
+  readonly tag: string;
+  readonly modifiers: readonly string[];
+  readonly unit: string;
+  readonly quantity: number;
+}
+
+export interface ShoppingListCreateRequest {
+  readonly name?: string | null;
+  readonly items: readonly ShoppingListItemInput[];
+  readonly active?: boolean;
+}
+
+export interface ShoppingListReplaceRequest {
+  readonly name: string;
+  readonly items: readonly ShoppingListItemInput[];
+  readonly active?: boolean;
+}
+
+export interface ShoppingListNameUpdateRequest {
+  readonly name: string;
+}
+
+export type ShoppingListStatus =
+  | 'PENDING'
+  | 'COMPUTING'
+  | 'READY'
+  | 'FAILED';
+
+export interface ShoppingListResponse {
+  readonly id: EntityId;
+  readonly name: string;
+  readonly items: readonly ShoppingListItem[];
+  readonly active: boolean;
+  readonly routes: readonly EntityId[];
+  readonly status: ShoppingListStatus;
 }
 
 export interface GetRoutesRequest {
@@ -62,5 +98,6 @@ export interface AssistantChatResponse {
 export interface ApiErrorBody {
   readonly message?: string;
   readonly detail?: string;
+  readonly errorCode?: string | null;
   readonly [key: string]: unknown;
 }

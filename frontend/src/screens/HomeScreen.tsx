@@ -1,4 +1,3 @@
-import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import {
   Pressable,
   ScrollView,
@@ -9,9 +8,9 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import type { RootStackParamList } from '../navigation/types';
+import type { MainTabScreenProps } from '../navigation/types';
 
-type Props = NativeStackScreenProps<RootStackParamList, 'Home'>;
+type Props = MainTabScreenProps<'Home'>;
 
 const quickActions: Array<{
   accent: string;
@@ -139,19 +138,6 @@ export function HomeScreen({ navigation }: Props) {
               <Text style={styles.chevron}>›</Text>
             </View>
           ))}
-        </View>
-
-        <View style={styles.bottomBar}>
-          <Pressable accessibilityLabel="Shopping lists" accessibilityRole="button" onPress={() => navigation.navigate('ShoppingList')} style={styles.bottomItem}>
-            <Text style={styles.bottomItemText}>Lists</Text>
-          </Pressable>
-          <View style={[styles.bottomItem, styles.bottomItemActive]}><Text style={styles.bottomItemTextActive}>Home</Text></View>
-          <Pressable accessibilityLabel="Set location" accessibilityRole="button" onPress={() => navigation.navigate('ShoppingList')} style={styles.bottomItem}>
-            <Text style={styles.bottomItemText}>Location</Text>
-          </Pressable>
-          <Pressable accessibilityLabel="Ask Carter" accessibilityRole="button" onPress={() => navigation.navigate('AiAssistant')} style={styles.carterButton}>
-            <Text style={styles.carterButtonText}>Ask Carter</Text>
-          </Pressable>
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -446,52 +432,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
     marginTop: 2,
-  },
-  bottomBar: {
-    alignItems: 'center',
-    borderColor: '#DCE3DC',
-    borderRadius: 8,
-    borderWidth: 1,
-    flexDirection: 'row',
-    gap: 6,
-    justifyContent: 'space-between',
-    marginHorizontal: 14,
-    marginTop: 22,
-    padding: 8,
-  },
-  bottomItem: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: 40,
-    paddingHorizontal: 7,
-  },
-  bottomItemActive: {
-    backgroundColor: '#DFF0DD',
-    borderRadius: 6,
-  },
-  bottomItemText: {
-    color: '#526057',
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  bottomItemTextActive: {
-    color: '#167438',
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  carterButton: {
-    backgroundColor: '#FFFFFF',
-    borderColor: '#1B2A1E',
-    borderRadius: 8,
-    borderWidth: 1,
-    minHeight: 40,
-    paddingHorizontal: 11,
-    justifyContent: 'center',
-  },
-  carterButtonText: {
-    color: '#1B2A1E',
-    fontSize: 13,
-    fontWeight: '700',
   },
   pressed: { opacity: 0.72 },
 });

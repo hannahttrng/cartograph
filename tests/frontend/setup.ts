@@ -1,0 +1,1 @@
+// jest-expo owns native module setup for the installed Expo SDK.

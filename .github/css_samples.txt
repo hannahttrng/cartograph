@@ -1,0 +1,52 @@
+
+
+Import recipe text box
+
+border-radius: 20px;
+background: #FFFCFC;
+box-shadow: 0 4px 4px 0 rgba(200, 200, 200, 0.25) inset, 0 2px 2px 0 rgba(0, 0, 0, 0.25);
+
+Routes Card
+width: 421px;
+height: 91px;
+
+border-radius: 20px;
+background: #FFFCFC;
+box-shadow: 0 2px 2px 0 rgba(0, 0, 0, 0.25);
+
+Routes best overall button
+width: 136px;
+height: 32px;
+
+border-radius: 10px;
+background: #0B6B24; (dark green)
+
+Light green
+fill: #DBF1DD;
+
+Unclicked button / general gray
+border-radius: 10px;
+background: #EEE;
+Font big
+color: #000;
+font-family: Monda;
+font-size: 20px;
+font-style: normal;
+font-weight: 700;
+line-height: normal;
+
+Font little
+color: #5F6368;
+font-family: Monda;
+font-size: 14px;
+font-style: normal;
+font-weight: 700;
+line-height: normal;
+
+Font gray
+color: #858282;
+font-family: Monda;
+font-size: 15px;
+font-style: normal;
+font-weight: 400;
+line-height: normal;

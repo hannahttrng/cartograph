@@ -14,6 +14,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 
 from backend.resolvers import connect_database, initialize_database, transaction
+from backend.tools.grocery_prices import seasonal
 from backend.types import Price, ProductCreate, StoreCreate, Tag
 
 
@@ -38,6 +39,7 @@ class ProductTemplate:
     seasonal_low_month: int | None = None
     seasonal_amplitude: float = 0.0
     modifiers: tuple[str, ...] = ()
+    modifier_variants: tuple[str | None, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,6 +63,7 @@ def _product(
     seasonal_low_month: int | None = None,
     seasonal_amplitude: float = 0.0,
     modifiers: tuple[str, ...] = (),
+    modifier_variants: tuple[str | None, ...] = (),
 ) -> ProductTemplate:
     return ProductTemplate(
         name=name,
@@ -71,7 +74,14 @@ def _product(
         seasonal_low_month=seasonal_low_month,
         seasonal_amplitude=seasonal_amplitude,
         modifiers=modifiers,
+        modifier_variants=modifier_variants,
     )
+
+
+def _sparse_brands(*brands: str) -> tuple[str | None, ...]:
+    if len(brands) not in (2, 3):
+        raise ValueError("sparse brand variants require two or three brands")
+    return (*brands, *(None for _ in range(6 - len(brands))))
 
 
 STORES = (
@@ -85,6 +95,8 @@ STORES = (
     StoreSeed("Stater Bros", "1536 Barton Rd, Redlands, CA 92373"),
     StoreSeed("Food 4 Less", "2070 W Redlands Blvd, Redlands, CA 92373"),
     StoreSeed("Stater Bros", "1775 E Lugonia Ave, Redlands, CA 92374"),
+    StoreSeed("Costco Wholesale", "28000 Greenspot Rd, Highland, CA 92346"),
+    StoreSeed("Grocery Outlet", "27945 Greenspot Rd, Highland, CA 92346"),
 )
 
 
@@ -96,27 +108,28 @@ UNIVERSAL_PRODUCTS = (
         1.99,
         seasonal_low_month=10,
         seasonal_amplitude=0.20,
-        modifiers=("origin: washington",),
+        modifier_variants=("origin: washington", "origin: chile", None),
     ),
     _product("Bananas", ("banana", "fruit"), "lbs", 0.69, seasonal_low_month=7, seasonal_amplitude=0.04),
     _product("Whole Milk", ("milk", "dairy"), "gallon", 4.29),
     _product("Large Eggs", ("egg", "dairy", "protein"), "count", 4.79, 12.0),
-    _product("Sandwich Bread", ("bread", "bakery", "wheat"), "loaf", 3.49),
+    _product("Sandwich Bread", ("bread", "bakery", "wheat"), "loaf", 3.49, modifier_variants=_sparse_brands("brand: nature's own", "brand: dave's killer bread")),
     _product("Unsalted Butter", ("butter", "dairy"), "oz", 4.99, 16.0),
-    _product("Chicken Breasts", ("chicken", "poultry", "meat", "protein"), "lbs", 4.99),
+    _product("Chicken Breasts", ("chicken", "poultry", "meat", "protein"), "lbs", 4.99, modifier_variants=_sparse_brands("brand: foster farms", "brand: tyson")),
     _product("Ground Beef 80/20", ("ground beef", "beef", "meat", "protein"), "lbs", 5.49),
-    _product("Long Grain White Rice", ("rice", "grain", "pantry"), "lbs", 7.99, 5.0),
-    _product("Spaghetti Pasta", ("spaghetti", "pasta", "pantry"), "oz", 1.49, 16.0),
-    _product("Tomato Pasta Sauce", ("tomato sauce", "sauce", "pasta", "pantry"), "oz", 2.49, 24.0),
-    _product("Sharp Cheddar Cheese", ("cheddar", "cheese", "dairy"), "oz", 4.49, 8.0),
-    _product("Plain Greek Yogurt", ("greek yogurt", "yogurt", "dairy", "protein"), "oz", 5.99, 32.0),
-    _product("Orange Juice", ("orange juice", "juice", "beverage"), "oz", 4.49, 52.0),
-    _product("Creamy Peanut Butter", ("peanut butter", "nut butter", "pantry", "protein"), "oz", 3.99, 16.0),
+    _product("Long Grain White Rice", ("rice", "grain", "pantry"), "lbs", 7.99, 5.0, modifier_variants=_sparse_brands("brand: mahatma", "brand: lundberg")),
+    _product("Spaghetti Pasta", ("spaghetti", "pasta", "pantry"), "oz", 1.49, 16.0, modifier_variants=_sparse_brands("brand: barilla", "brand: de cecco")),
+    _product("Tomato Pasta Sauce", ("tomato sauce", "sauce", "pasta", "pantry"), "oz", 2.49, 24.0, modifier_variants=_sparse_brands("brand: rao's", "brand: prego")),
+    _product("Sharp Cheddar Cheese", ("cheddar", "cheese", "dairy"), "oz", 4.49, 8.0, modifier_variants=_sparse_brands("brand: tillamook", "brand: sargento")),
+    _product("Plain Greek Yogurt", ("greek yogurt", "yogurt", "dairy", "protein"), "oz", 5.99, 32.0, modifier_variants=_sparse_brands("brand: chobani", "brand: fage", "brand: oikos")),
+    _product("Orange Juice", ("orange juice", "juice", "beverage"), "oz", 4.49, 52.0, modifier_variants=_sparse_brands("brand: tropicana", "brand: simply orange", "brand: florida's natural")),
+    _product("Creamy Peanut Butter", ("peanut butter", "nut butter", "pantry", "protein"), "oz", 3.99, 16.0, modifier_variants=_sparse_brands("brand: jif", "brand: skippy", "brand: peter pan")),
     _product("Russet Potatoes", ("russet potato", "potato", "vegetable"), "lbs", 4.99, 5.0, 9, 0.08),
     _product("Yellow Onions", ("yellow onion", "onion", "vegetable"), "lbs", 3.99, 3.0, 9, 0.07),
     _product("Roma Tomatoes", ("roma tomato", "tomato", "vegetable"), "lbs", 1.49, seasonal_low_month=8, seasonal_amplitude=0.16),
     _product("Hass Avocados", ("hass avocado", "avocado", "fruit"), "count", 4.99, 4.0, 6, 0.10),
-    _product("Bottled Water 24-Pack", ("water", "bottled water", "beverage"), "count", 5.99, 24.0),
+    _product("Bottled Water 24-Pack", ("water", "bottled water", "beverage"), "count", 5.99, 24.0, modifier_variants=_sparse_brands("brand: aquafina", "brand: dasani")),
+    _product("Classic Potato Chips", ("potato chip", "chip", "snack"), "oz", 4.99, 8.0, modifier_variants=_sparse_brands("brand: lays", "brand: ruffles")),
 )
 
 
@@ -180,7 +193,7 @@ SPECIALTY_PRODUCTS = (
     _product("Limes", ("lime", "citrus", "fruit"), "count", 3.00, 5.0, 6, 0.10),
     _product("Jalapeno Peppers", ("jalapeno", "pepper", "chile", "vegetable"), "lbs", 1.99, seasonal_low_month=8, seasonal_amplitude=0.12),
     _product("Sourdough Bread", ("sourdough", "bread", "bakery"), "loaf", 5.49),
-    _product("Oat Milk", ("oat milk", "non dairy", "beverage"), "oz", 4.49, 64.0),
+    _product("Oat Milk", ("oat milk", "non dairy", "beverage"), "oz", 4.49, 64.0, modifier_variants=_sparse_brands("brand: oatly", "brand: planet oat")),
 )
 
 
@@ -324,13 +337,24 @@ def generate_price_history(
 def generate_modifiers(
     product: ProductTemplate,
     current_price: Price,
+    *,
+    store_index: int = 0,
+    seed: int = DEFAULT_RANDOM_SEED,
 ) -> tuple[str, ...]:
+    if store_index < 0:
+        raise ValueError("store_index must be nonnegative")
+
     modifiers = list(product.modifiers)
-    observed_month = datetime.fromtimestamp(
-        current_price.date, timezone.utc
-    ).month
-    if product.seasonal_low_month == observed_month:
-        modifiers.append("in season")
+    if product.modifier_variants:
+        digest = hashlib.sha256(
+            f"{seed}:modifier:{product.name}".encode("utf-8")
+        ).digest()
+        offset = int.from_bytes(digest[:8], "big") % len(product.modifier_variants)
+        variant = product.modifier_variants[
+            (store_index + offset) % len(product.modifier_variants)
+        ]
+        if variant is not None:
+            modifiers.append(variant)
     if current_price.sale:
         modifiers.append("on sale")
     return tuple(modifiers)
@@ -414,7 +438,14 @@ def seed_database(
                     current_price = history[-1]
                     product = ProductCreate(
                         name=template.name,
-                        modifiers=list(generate_modifiers(template, current_price)),
+                        modifiers=list(
+                            generate_modifiers(
+                                template,
+                                current_price,
+                                store_index=store_index,
+                                seed=seed,
+                            )
+                        ),
                         store=store_id,
                         unit=template.unit,
                     )
@@ -486,6 +517,7 @@ def seed_database(
                     for product_id in product_ids
                 ),
             )
+            seasonal(connection, as_of=effective_as_of)
     finally:
         connection.close()
 

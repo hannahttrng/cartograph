@@ -1,4 +1,6 @@
+import json
 import sqlite3
+from pathlib import Path
 
 import pytest
 from arcgis.geometry import Point
@@ -51,6 +53,11 @@ from backend.types import (
     ShoppingListStatus,
     StoreCreate,
     Tag,
+)
+
+
+SHOPPING_LIST_CONTRACT_FIXTURE = (
+    Path(__file__).parents[2] / "tests" / "fixtures" / "shopping-list-contract.json"
 )
 
 
@@ -2037,6 +2044,37 @@ def test_carter_chat_endpoint_returns_provider_answer(tmp_path: object) -> None:
 
     assert response.status_code == 200
     assert response.json() == {"message": "Cartograph can help plan a grocery trip."}
+
+
+def test_shopping_list_create_matches_shared_contract_fixture(
+    tmp_path: object,
+) -> None:
+    fixture = json.loads(SHOPPING_LIST_CONTRACT_FIXTURE.read_text(encoding="utf-8"))
+    database_path = tmp_path / "shopping-list-contract.db"  # type: ignore[operator]
+    initialize_database(database_path)
+    connection = connect_database(database_path)
+    try:
+        connection.executemany(
+            """
+            INSERT INTO tags (tag, default_unit, default_quantity)
+            VALUES (?, ?, ?)
+            """,
+            (
+                (tag["tag"], tag["defaultUnit"], tag["defaultQuantity"])
+                for tag in fixture["tags"]
+            ),
+        )
+    finally:
+        connection.close()
+
+    with TestClient(create_app(database_path)) as client:
+        response = client.post(
+            "/api/v1/shopping-lists",
+            json=fixture["createRequest"],
+        )
+
+    assert response.status_code == 201
+    assert response.json() == fixture["expectedResponse"]
 
 
 def test_shopping_list_endpoints_support_crud(tmp_path: object) -> None:

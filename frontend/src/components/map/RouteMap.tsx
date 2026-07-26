@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
 import type { MapRouteData, MapState } from '../../types/maps';
 import { ArcGISMapAdapter } from './ArcGISMapAdapter';
@@ -6,58 +6,63 @@ import { RouteMapFallback } from './RouteMapFallback';
 
 interface RouteMapProps {
   mapData: MapRouteData;
+  onError: () => void;
+  onLoad: () => void;
+  onLoadStart: () => void;
+  reloadKey: number;
   state: MapState;
 }
 
-const ARC_GIS_MAP_ENABLED = false;
-
-export function RouteMap({ mapData, state }: RouteMapProps) {
-  if (state === 'loading') {
-    return (
-      <View style={styles.status}>
-        <Text style={styles.statusText}>Loading route map...</Text>
-      </View>
-    );
-  }
-
-  if (ARC_GIS_MAP_ENABLED) {
-    return <ArcGISMapAdapter mapData={mapData} />;
+export function RouteMap({
+  mapData,
+  onError,
+  onLoad,
+  onLoadStart,
+  reloadKey,
+  state,
+}: RouteMapProps) {
+  if (state === 'mapUnavailable') {
+    return <RouteMapFallback mapData={mapData} />;
   }
 
   return (
-    <View>
-      {state === 'mapUnavailable' ? (
-        <Text accessibilityLiveRegion="assertive" style={styles.unavailableText}>
-          Map unavailable. Showing route details instead.
-        </Text>
-      ) : (
-        <Text style={styles.unavailableText}>
-          Interactive mapping will be available when ArcGIS is connected.
-        </Text>
-      )}
-      <RouteMapFallback mapData={mapData} />
+    <View style={styles.container}>
+      <ArcGISMapAdapter
+        key={reloadKey}
+        onError={onError}
+        onLoad={onLoad}
+        onLoadStart={onLoadStart}
+      />
+      {state === 'loading' ? (
+        <View style={styles.loadingOverlay}>
+          <ActivityIndicator color="#173F24" size="large" />
+          <Text accessibilityLiveRegion="polite" style={styles.statusText}>
+            Loading map...
+          </Text>
+        </View>
+      ) : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  status: {
+  container: {
+    flex: 1,
+    minHeight: 320,
+  },
+  loadingOverlay: {
     alignItems: 'center',
-    borderColor: '#D9E2EC',
-    borderRadius: 8,
-    borderWidth: 1,
+    backgroundColor: '#E9EEE8',
+    bottom: 0,
     justifyContent: 'center',
-    minHeight: 180,
-    padding: 20,
+    left: 0,
+    position: 'absolute',
+    right: 0,
+    top: 0,
   },
   statusText: {
-    color: '#52606D',
+    color: '#344A3A',
     fontSize: 15,
-  },
-  unavailableText: {
-    color: '#52606D',
-    fontSize: 14,
-    lineHeight: 20,
-    marginBottom: 12,
+    marginTop: 12,
   },
 });

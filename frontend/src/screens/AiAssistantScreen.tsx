@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import {
   ActivityIndicator,
   Pressable,
@@ -12,13 +11,13 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { askCarter, importRecipe, toApiError } from '../api';
-import type { RootStackParamList } from '../navigation/types';
+import type { MainTabScreenProps } from '../navigation/types';
 import type {
   AssistantRecipeImportResponse,
   RecipeSourceType,
 } from '../types/api';
 
-type Props = NativeStackScreenProps<RootStackParamList, 'AiAssistant'>;
+type Props = MainTabScreenProps<'AiAssistant'>;
 type CarterMode = 'list' | 'chat';
 
 export function AiAssistantScreen({ navigation }: Props) {

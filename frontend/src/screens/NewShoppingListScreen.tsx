@@ -21,7 +21,7 @@ type Props = NativeStackScreenProps<RootStackParamList, 'NewShoppingList'>;
 const normalizeValue = (value: string): string => value.trim().replace(/\s+/g, ' ');
 
 export function NewShoppingListScreen({ navigation, route }: Props) {
-  const initialItems = route.params?.initialItems ?? [];
+  const initialItems: string[] = route.params?.initialItems ?? [];
   const [listName, setListName] = useState(route.params?.title ?? 'Untitled list');
   const [itemName, setItemName] = useState('');
   const [unitPrice, setUnitPrice] = useState('');

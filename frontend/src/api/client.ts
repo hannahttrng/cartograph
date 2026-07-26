@@ -6,12 +6,14 @@ import type { ApiErrorBody } from '../types/api';
 export interface ApiErrorOptions<T = unknown> {
   status?: number;
   code?: string;
+  domainCode?: string;
   data?: T;
 }
 
 export class ApiError<T = unknown> extends Error {
   readonly status?: number;
   readonly code?: string;
+  readonly domainCode?: string;
   readonly data?: T;
 
   constructor(message: string, options: ApiErrorOptions<T> = {}) {
@@ -19,6 +21,7 @@ export class ApiError<T = unknown> extends Error {
     this.name = 'ApiError';
     this.status = options.status;
     this.code = options.code;
+    this.domainCode = options.domainCode;
     this.data = options.data;
     Object.setPrototypeOf(this, ApiError.prototype);
   }
@@ -35,6 +38,15 @@ const getResponseMessage = (data: unknown): string | undefined => {
     : typeof body.message === 'string'
       ? body.message
       : undefined;
+};
+
+const getDomainErrorCode = (data: unknown): string | undefined => {
+  if (!data || typeof data !== 'object') {
+    return undefined;
+  }
+
+  const { errorCode } = data as ApiErrorBody;
+  return typeof errorCode === 'string' && errorCode ? errorCode : undefined;
 };
 
 export const toApiError = (error: unknown): ApiError => {
@@ -62,6 +74,7 @@ export const toApiError = (error: unknown): ApiError => {
   return new ApiError(getResponseMessage(data) ?? fallbackMessage, {
     status,
     code: axiosError.code,
+    domainCode: getDomainErrorCode(data),
     data,
   });
 };
@@ -87,4 +100,14 @@ export const encodePathId = (id: string, label: string): string => {
   }
 
   return encodeURIComponent(value);
+};
+
+export const encodeEntityId = (id: number, label: string): string => {
+  if (!Number.isSafeInteger(id) || id <= 0) {
+    throw new ApiError(`${label} must be a positive integer.`, {
+      code: 'INVALID_ARGUMENT',
+    });
+  }
+
+  return String(id);
 };

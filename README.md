@@ -48,7 +48,8 @@ npm run ios
 ```
 
 Start the FastAPI backend before testing Carter or any live API functionality.
-The iOS Simulator uses `http://localhost:8000` by default. When running the app
+The frontend uses `http://localhost:8000` on iOS and
+`http://10.0.2.2:8000` on an Android emulator by default. When running the app
 on a physical phone, set the backend to your computer's LAN address before
 starting Expo, replacing the example address with your computer's local IP:
 
@@ -56,12 +57,41 @@ starting Expo, replacing the example address with your computer's local IP:
 EXPO_PUBLIC_API_BASE_URL="http://192.168.1.50:8000" npm start
 ```
 
-The phone and computer must be on the same network. For an offline UI demo,
-use mock data instead:
+The phone and computer must be on the same network. For a contract-equivalent
+offline Shopping List demo, use mock data instead:
 
 ```sh
 EXPO_PUBLIC_USE_MOCK_DATA=true npm start
 ```
+
+### Current frontend prototype
+
+The application uses a persistent bottom navigation bar with Home, Lists,
+Routes, Carter, and Account tabs. The Routes tab currently renders three
+best-first candidates adapted from the deterministic milk-and-bread optimizer
+fixture in `backend/tests/test_route_optimizer.py`. Each card shows its rank,
+Store count, distance, travel time, and Product purchase total; expanding a
+card reveals the ordered Stores and assigned Products.
+
+The Lists tab calls the implemented `/api/v1/tags` and
+`/api/v1/shopping-lists` endpoints. It loads backend Shopping Lists, accepts
+only catalog Tags, creates lists, uses name-only PATCH requests when possible,
+replaces item drafts with PUT, and deletes server records. Parsed live and mock
+responses pass through the same runtime contract checks. The stack-only New
+List screen remains a separate device-local collections prototype; its
+AsyncStorage records are not synchronized with backend Shopping Lists.
+
+Opening a route pushes a focused map screen above the tabs. That screen embeds
+the public `CARTograph_2` ArcGIS Web Map and falls back to the selected route's
+local Store sequence when the WebView, network, or WebGL2 is unavailable. It
+does not use or expose `ARCGIS_API_KEY`; the public share link is also available
+as an external-browser fallback.
+
+Shopping List CRUD is integrated, but submission does not call route
+optimization. The displayed route Store/Product details remain fixture
+hydration, and the ArcGIS Web Map is not route-specific geometry. Live
+location acquisition, route-candidate integration, route catalog hydration,
+and backend-driven map routing remain deferred.
 
 ## Backend
 
@@ -91,10 +121,11 @@ python -m venv .venv
 python -m pip install -r backend/requirements.txt
 ```
 
-With the virtual environment active, start the server:
+With the virtual environment active, start the server. Bind to `0.0.0.0` so an
+Android emulator can reach it through `10.0.2.2`:
 
 ```sh
-python -m uvicorn backend.index:app --reload
+python -m uvicorn backend.index:app --reload --host 0.0.0.0 --port 8000
 ```
 
 The API is available at `http://127.0.0.1:8000`. Useful initial endpoints are:
@@ -434,6 +465,8 @@ not persist coordinates or change the SQLite schema.
 - `backend/controllers.py`: versioned HTTP routes.
 - `backend/queries.ts`: React Native API types and client helpers.
 - `backend/tools/seed.py`: deterministic grocery catalog and price-history seeder.
+- `backend/tools/grocery_prices.py`: Prophet-based price forecasting and seasonal
+	Product modifier postprocessing.
 - `backend/tools/export_csv.py`: read-only catalog CSV exporter.
 - `export-catalog.ps1`: path-safe PowerShell launcher for CSV exports.
 
@@ -465,23 +498,28 @@ reseeding.
 
 `--database PATH` overrides `CARTOGRAPH_DB_PATH`. A completed run creates:
 
-- 10 Redlands grocery stores.
-- 40 Products per store and 400 Product rows total.
-- 20 universal product concepts available at all stores.
+- 12 Redlands and Highland grocery stores.
+- Between 36 and 40 Products per store and 452 Product rows total.
+- 21 universal product concepts available at all stores.
 - 60 limited-availability concepts stocked by between 1 and 5 stores, balanced
-	so each store receives 20 of them.
-- 137 reusable Tag definitions covering all 1,207 Tag-to-Product memberships,
+	so each store receives between 15 and 19 of them.
+- 140 reusable Tag definitions covering all 1,367 Tag-to-Product memberships,
 	with normalized default units and shopping quantities. A few defaults, such
 	as 6 eggs for a 12-count package, intentionally differ from store packages.
-- Ordered Product modifiers such as `origin: washington`, `in season`, and
-	`on sale`. Origin is template-owned, seasonal produce is marked during its
-	configured low-price month, and `on sale` matches the current Price's sale
-	flag. Seed classifications remain separate Tag memberships.
+- Ordered Product modifiers such as `origin: washington`, `origin: chile`,
+	`brand: lays`, `in season`, and `on sale`. Honeycrisp origins are balanced
+	between Washington, Chile, and no origin. Branded Products draw sparsely from
+	two brands; Greek yogurt, orange juice, and peanut butter draw from three.
+	These variants are deterministic for the same seed and Store.
+	`on sale` matches the current Price's sale flag, and `in season` is derived
+	after seeding by fitting each Product's complete archived-plus-current price
+	series and comparing the current month with the model's low-price months.
+	Seed classifications remain separate Tag memberships.
 - Explicit multiword tags such as `honeycrisp apple` and `ground beef`, stored
 	as single tag values.
-- 311 archived Prices per Product, or 124,400 `price_history` rows total.
+- 311 archived Prices per Product, or 140,572 `price_history` rows total.
 - One Product-owned `currentPrice` containing the final generated observation,
-	for 124,800 generated Prices across current values and history.
+	for 141,024 generated Prices across current values and history.
 
 Generated prices are deterministic for the same seed, cutoff, Product, and
 Store. They include small weekly and per-Store differences, occasional
@@ -525,21 +563,13 @@ A missing database path fails without creating an empty SQLite database.
 ### Validation
 
 ```powershell
+npm run test:frontend -- --runInBand
+npm run typecheck:tests
+npm run typecheck
 python -m pytest backend/tests/test_export_csv.py -q
 python -m pytest backend/tests/test_contract.py -q
 python -m pytest backend/tests/test_seed.py -q
-python -m pytest backend/tests/test_route_optimizer.py -q
-python -m pytest backend/tests/test_route_optimizer_performance.py -q
-npx --yes --package typescript tsc --noEmit --strict --target ES2020 --module ES2020 --lib ES2020,DOM backend/queries.ts
-```
-
-The production optimizer has no OR-Tools dependency. Install the optional test
-requirements to compare its top routes with the restored CP-SAT reference, then
-run the quality test with output enabled:
-
-```powershell
-python -m pip install -r backend/test-requirements.txt
-python -m pytest backend/tests/test_route_optimizer_quality.py -q -s
+npx --yes --package typescript tsc --ignoreConfig --noEmit --strict --target ES2020 --module ES2020 --lib ES2020,DOM backend/queries.ts
 ```
 
 This backend implements database initialization, health checks, Shopping List

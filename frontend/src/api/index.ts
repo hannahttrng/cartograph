@@ -1,6 +1,14 @@
 export { apiClient, ApiError, toApiError } from './client';
 export { askCarter, importRecipe } from './assistant';
-export { createList, getList, updateList } from './lists';
+export { listCatalogTags } from './catalog';
+export {
+  createShoppingList,
+  deleteShoppingList,
+  getShoppingList,
+  listShoppingLists,
+  replaceShoppingList,
+  updateShoppingListName,
+} from './lists';
 export { getMap } from './maps';
 export { getRoutes } from './routes';
 
@@ -11,10 +19,16 @@ export type {
   AssistantRecipeImportRequest,
   AssistantRecipeImportResponse,
   AssistantRecipeIngredient,
-  CreateListRequest,
+  CatalogTag,
+  EntityId,
   GetMapResponse,
   GetRoutesRequest,
   GetRoutesResponse,
-  ListResponse,
-  UpdateListRequest,
+  ShoppingListCreateRequest,
+  ShoppingListItem,
+  ShoppingListItemInput,
+  ShoppingListNameUpdateRequest,
+  ShoppingListReplaceRequest,
+  ShoppingListResponse,
+  ShoppingListStatus,
 } from '../types/api';

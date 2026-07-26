@@ -1,4 +1,9 @@
-const DEFAULT_API_BASE_URL = 'http://localhost:8000';
+import { Platform } from 'react-native';
+
+const DEFAULT_API_BASE_URL =
+  Platform.OS === 'android'
+    ? 'http://10.0.2.2:8000'
+    : 'http://localhost:8000';
 
 const parseBoolean = (value: string | undefined): boolean =>
   value?.trim().toLowerCase() === 'true';
