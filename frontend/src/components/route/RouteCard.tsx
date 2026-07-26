@@ -1,6 +1,8 @@
-import { Ionicons } from '@expo/vector-icons';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import RoutesIcon from '../../../assets/routes-nav.svg';
+import ExpandIcon from '../../../assets/svg icons/keyboard_arrow_up.svg';
+import { colors, radius, spacing, typography } from '../../theme';
 import type { Product, Route } from '../../types/models';
 
 interface RouteCardProps {
@@ -10,6 +12,7 @@ interface RouteCardProps {
   rank: number;
   route: Route;
   routeCount: number;
+  title?: string;
 }
 
 const purchaseTotal = (route: Route): number =>
@@ -25,10 +28,11 @@ export function RouteCard({
   rank,
   route,
   routeCount,
+  title = `Route ${rank}`,
 }: RouteCardProps) {
   const storeLabel = route.stores.length === 1 ? 'store' : 'stores';
   const total = purchaseTotal(route);
-  const summary = `Route ${rank} of ${routeCount}, ${route.stores.length} ${storeLabel}, ${route.distance.toFixed(1)} miles, ${Math.round(route.time)} minutes, $${total.toFixed(2)} purchase total`;
+  const summary = `${title}, rank ${rank} of ${routeCount}, ${route.stores.length} ${storeLabel}, ${route.distance.toFixed(1)} miles, ${Math.round(route.time)} minutes, $${total.toFixed(2)} purchase total`;
 
   return (
     <View style={styles.card}>
@@ -43,15 +47,15 @@ export function RouteCard({
         <View style={styles.header}>
           <View>
             <Text style={styles.eyebrow}>RANK {rank} OF {routeCount}</Text>
-            <Text style={styles.title}>Route {rank}</Text>
+            <Text style={styles.title}>{title}</Text>
           </View>
-          <Ionicons
+          <View
             accessibilityElementsHidden
-            color="#245C36"
             importantForAccessibility="no-hide-descendants"
-            name={isExpanded ? 'chevron-up' : 'chevron-down'}
-            size={22}
-          />
+            style={[styles.expandIcon, !isExpanded && styles.expandIconCollapsed]}
+          >
+            <ExpandIcon height={22} width={22} />
+          </View>
         </View>
 
         <View style={styles.metricGrid}>
@@ -98,12 +102,14 @@ export function RouteCard({
       ) : null}
 
       <Pressable
-        accessibilityLabel={`Open route ${rank} map`}
+        accessibilityLabel={`Open ${title} map`}
         accessibilityRole="button"
         onPress={onOpenMap}
         style={({ pressed }) => [styles.mapButton, pressed && styles.mapButtonPressed]}
       >
-        <Ionicons color="#FFFFFF" name="navigate-outline" size={20} />
+        <View style={styles.mapIcon}>
+          <RoutesIcon height={18} width={19} />
+        </View>
         <Text style={styles.mapButtonText}>Open map</Text>
       </Pressable>
     </View>
@@ -112,17 +118,17 @@ export function RouteCard({
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: '#FFFFFF',
-    borderColor: '#DCE3DC',
-    borderRadius: 8,
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: radius.md,
     borderWidth: 1,
     overflow: 'hidden',
   },
   summaryButton: {
-    padding: 16,
+    padding: spacing.md,
   },
   pressed: {
-    backgroundColor: '#F3F7F2',
+    backgroundColor: colors.surfaceSubtle,
   },
   header: {
     alignItems: 'center',
@@ -130,27 +136,34 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   eyebrow: {
-    color: '#668170',
+    ...typography.caption,
+    color: colors.textMuted,
     fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 0,
   },
   title: {
-    color: '#17231A',
-    fontSize: 20,
-    fontWeight: '700',
-    marginTop: 3,
+    ...typography.title,
+    color: colors.text,
+    marginTop: 2,
+  },
+  expandIcon: {
+    alignItems: 'center',
+    height: 30,
+    justifyContent: 'center',
+    width: 30,
+  },
+  expandIconCollapsed: {
+    transform: [{ rotate: '180deg' }],
   },
   metricGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     marginHorizontal: -4,
-    marginTop: 12,
-    rowGap: 8,
+    marginTop: spacing.sm,
+    rowGap: spacing.xs,
   },
   metric: {
-    backgroundColor: '#F3F7F2',
-    borderRadius: 6,
+    backgroundColor: colors.surfaceSubtle,
+    borderRadius: radius.sm,
     marginHorizontal: '1%',
     minHeight: 66,
     paddingHorizontal: 10,
@@ -158,25 +171,24 @@ const styles = StyleSheet.create({
     width: '48%',
   },
   metricValue: {
-    color: '#173F24',
+    color: colors.primaryDark,
+    fontFamily: 'Monda_700Bold',
     fontSize: 17,
-    fontWeight: '700',
   },
   metricLabel: {
-    color: '#667168',
-    fontSize: 12,
+    ...typography.caption,
+    color: colors.textMuted,
     marginTop: 2,
   },
   details: {
-    borderTopColor: '#DCE3DC',
+    borderTopColor: colors.border,
     borderTopWidth: StyleSheet.hairlineWidth,
-    padding: 16,
+    padding: spacing.md,
     paddingTop: 14,
   },
   detailsTitle: {
-    color: '#294E34',
-    fontSize: 15,
-    fontWeight: '700',
+    ...typography.bodyStrong,
+    color: colors.text,
   },
   stop: {
     alignItems: 'flex-start',
@@ -184,11 +196,11 @@ const styles = StyleSheet.create({
     marginTop: 14,
   },
   stopNumber: {
-    backgroundColor: '#DFF0DD',
+    backgroundColor: colors.primaryMuted,
     borderRadius: 15,
-    color: '#167438',
+    color: colors.primary,
+    fontFamily: 'Monda_700Bold',
     fontSize: 13,
-    fontWeight: '700',
     height: 30,
     lineHeight: 30,
     overflow: 'hidden',
@@ -200,14 +212,12 @@ const styles = StyleSheet.create({
     marginLeft: 12,
   },
   storeName: {
-    color: '#17231A',
-    fontSize: 16,
-    fontWeight: '700',
+    ...typography.bodyStrong,
+    color: colors.text,
   },
   storeAddress: {
-    color: '#667168',
-    fontSize: 13,
-    lineHeight: 18,
+    ...typography.caption,
+    color: colors.textMuted,
     marginTop: 2,
   },
   productList: {
@@ -220,19 +230,20 @@ const styles = StyleSheet.create({
     minHeight: 28,
   },
   productName: {
-    color: '#344A3A',
+    ...typography.body,
+    color: colors.text,
     flex: 1,
-    fontSize: 14,
+    fontSize: 13,
     marginRight: 12,
   },
   productPrice: {
-    color: '#245C36',
-    fontSize: 14,
-    fontWeight: '700',
+    ...typography.bodyStrong,
+    color: colors.primary,
+    fontSize: 13,
   },
   mapButton: {
     alignItems: 'center',
-    backgroundColor: '#173F24',
+    backgroundColor: colors.primary,
     flexDirection: 'row',
     gap: 8,
     justifyContent: 'center',
@@ -240,11 +251,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   mapButtonPressed: {
-    backgroundColor: '#0F2F19',
+    opacity: 0.76,
+  },
+  mapIcon: {
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderRadius: radius.sm,
+    height: 27,
+    justifyContent: 'center',
+    width: 29,
   },
   mapButtonText: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '700',
+    ...typography.bodyStrong,
+    color: colors.textInverse,
   },
 });

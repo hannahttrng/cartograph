@@ -1,4 +1,6 @@
+import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import {
+  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -6,34 +8,37 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import type { MainTabScreenProps } from '../navigation/types';
+import NearbyDealsIcon from '../../assets/svg icons/Group 13.svg';
+import ImportRecipeIcon from '../../assets/svg icons/Group 14.svg';
+import BuildListIcon from '../../assets/svg icons/Group 15.svg';
+import HeaderBackground from '../../assets/svg icons/Rectangle 1.svg';
+import CarterLogo from '../../assets/svg icons/carter_home.svg';
+import { AppBottomNav, DesignIcon } from '../components/common';
+import type { RootStackParamList } from '../navigation/types';
+import type { Route } from '../types/models';
 
-type Props = MainTabScreenProps<'Home'>;
+type Props = NativeStackScreenProps<RootStackParamList, 'Home'>;
 
 const quickActions: Array<{
-  accent: string;
-  screen: 'NearbyDeals' | 'AiAssistant' | 'NewShoppingList';
-  subtitle: string;
+  Icon: typeof NearbyDealsIcon;
+  screen: 'NearbyDeals' | 'ImportRecipes' | 'NewShoppingList';
   title: string;
 }> = [
   {
-    accent: '#E4F5DD',
+    Icon: NearbyDealsIcon,
     title: 'Nearby Deals',
-    subtitle: 'Save on favorites',
     screen: 'NearbyDeals',
   },
   {
-    accent: '#E3F1EC',
+    Icon: ImportRecipeIcon,
     title: 'Import Recipe',
-    subtitle: 'Paste text or a link',
-    screen: 'AiAssistant',
+    screen: 'ImportRecipes',
   },
   {
-    accent: '#F8EEDC',
+    Icon: BuildListIcon,
     title: 'Build a List',
-    subtitle: 'Plan your next trip',
     screen: 'NewShoppingList',
   },
 ];
@@ -41,96 +46,106 @@ const quickActions: Array<{
 const recentActivity = [
   { name: 'Weekly Groceries', detail: 'Yesterday', savings: '$19.52' },
   { name: 'Trader Joes Run', detail: '2 days ago', savings: '$20.53' },
-  { name: 'Dinner Ingredients', detail: 'Last week', savings: '$12.84' },
+  { name: 'Weekly Groceries', detail: 'Yesterday', savings: '$19.52' },
 ];
 
+const mapPreviewRoute: Route = {
+  stores: [
+    {
+      name: 'Redlands Grocery Stop',
+      address: 'Downtown Redlands, CA',
+      latitude: 34.0571,
+      longitude: -117.1817,
+    },
+  ],
+  products: [],
+  distance: 3.2,
+  time: 12,
+  score: 92,
+};
+
 export function HomeScreen({ navigation }: Props) {
+  const { top } = useSafeAreaInsets();
+
   return (
-    <SafeAreaView edges={['bottom']} style={styles.screen}>
+    <SafeAreaView edges={[]} style={styles.screen}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <View style={styles.hero}>
-          <View style={styles.heroTopRow}>
-            <View>
-              <Text style={styles.eyebrow}>GOOD AFTERNOON</Text>
-              <Text accessibilityRole="header" style={styles.title}>
-                cartograph
-              </Text>
-              <Text style={styles.tagline}>chart your cart.</Text>
+        <View style={[styles.hero, { height: 161 + top }]}>
+          <HeaderBackground height="100%" preserveAspectRatio="none" style={StyleSheet.absoluteFill} width="100%" />
+          <View style={[styles.heroContent, { paddingTop: 28 + top }]}>
+            <View style={styles.heroTopRow}>
+              <View style={styles.brandRow}>
+                <CarterLogo height={40} width={40} />
+                <View style={styles.brandCopy}>
+                <Text accessibilityRole="header" adjustsFontSizeToFit minimumFontScale={0.78} numberOfLines={1} style={styles.title}>
+                  <Text style={styles.titleAccent}>cart</Text>ograph
+                </Text>
+                <Text style={styles.tagline}>chart your cart.</Text>
+                </View>
+              </View>
+              <Pressable
+                accessibilityLabel="Open profile"
+                accessibilityRole="button"
+                onPress={() => navigation.navigate('Account')}
+                style={({ pressed }) => [styles.profileButton, pressed && styles.pressed]}
+              >
+                <DesignIcon name="person" size={23} />
+              </Pressable>
             </View>
-            <Pressable
-              accessibilityLabel="Open profile"
-              accessibilityRole="button"
-              onPress={() => navigation.navigate('Account')}
-              style={({ pressed }) => [styles.profileButton, pressed && styles.pressed]}
-            >
-              <Text style={styles.profileInitial}>C</Text>
-            </Pressable>
-          </View>
-          <View style={styles.searchBar}>
-            <Text style={styles.searchIcon}>Search</Text>
-            <TextInput
-              accessibilityLabel="Search ingredients or recipes"
-              editable={false}
-              placeholder="Search ingredients, recipes, etc."
-              placeholderTextColor="#77847D"
-              style={styles.searchInput}
-            />
+            <View style={styles.searchBar}>
+              <DesignIcon name="search" size={18} />
+              <TextInput
+                accessibilityLabel="Search ingredients or recipes"
+                editable={false}
+                placeholder="Search ingredients, recipes, etc."
+                placeholderTextColor="#77847D"
+                style={styles.searchInput}
+              />
+            </View>
           </View>
         </View>
 
         <View style={styles.quickActionRow}>
-          {quickActions.map((action) => (
+          {quickActions.map(({ Icon, ...action }) => (
             <Pressable
               accessibilityRole="button"
               key={action.screen}
               onPress={() => navigation.navigate(action.screen)}
               style={({ pressed }) => [styles.quickAction, pressed && styles.pressed]}
             >
-              <View style={[styles.actionSymbol, { backgroundColor: action.accent }]}>
-                <View style={styles.actionSymbolDot} />
-              </View>
+              <View style={styles.actionIconShell}><Icon height={58} width={58} /></View>
               <Text style={styles.quickActionTitle}>{action.title}</Text>
-              <Text style={styles.quickActionSubtitle}>{action.subtitle}</Text>
             </Pressable>
           ))}
         </View>
 
-        <View style={styles.sectionHeader}>
+        <View style={[styles.sectionHeader, styles.mapHeader]}>
           <Text accessibilityRole="header" style={styles.sectionTitle}>Map Preview</Text>
-          <Text style={styles.locationLabel}>REDLANDS, CA</Text>
         </View>
         <Pressable
-          accessibilityLabel="View Redlands map preview"
+          accessibilityLabel="Open Redlands map full screen"
           accessibilityRole="button"
-          onPress={() => navigation.navigate('ShoppingList')}
+          onPress={() =>
+            navigation.navigate('Map', {
+              route: mapPreviewRoute,
+              routeId: 'home-map-preview',
+            })
+          }
           style={({ pressed }) => [styles.mapPreview, pressed && styles.pressed]}
         >
-          <View style={[styles.road, styles.roadOne]} />
-          <View style={[styles.road, styles.roadTwo]} />
-          <View style={[styles.road, styles.roadThree]} />
-          <Text style={styles.mapPlaceLabel}>DOWNTOWN{`\n`}REDLANDS</Text>
-          <View style={[styles.mapPin, styles.pinOne]}><View style={styles.pinCenter} /></View>
-          <View style={[styles.mapPin, styles.pinTwo]}><View style={styles.pinCenter} /></View>
-          <View style={styles.routeSummary}>
-            <View style={styles.routeIndicator}><View style={styles.routeIndicatorDot} /></View>
-            <View style={styles.routeSummaryCopy}>
-              <Text style={styles.routeSummaryTitle}>Best Route</Text>
-              <Text style={styles.routeSummaryDetail}>$17.84 savings</Text>
-            </View>
-            <Text style={styles.chevron}>›</Text>
-          </View>
+          <Image resizeMode="cover" source={require('../../assets/images/redlands-map.png')} style={styles.mapImage} />
         </Pressable>
 
         <View style={styles.sectionHeader}>
           <Text accessibilityRole="header" style={styles.sectionTitle}>Recent Activity</Text>
-          <Pressable accessibilityRole="button" onPress={() => {}}>
-            <Text style={styles.hideAll}>Hide All</Text>
+          <Pressable accessibilityRole="button" onPress={() => navigation.navigate('SavedLists')}>
+            <Text style={styles.hideAll}>Show All</Text>
           </Pressable>
         </View>
         <View style={styles.activityList}>
-          {recentActivity.map((activity) => (
-            <View key={activity.name} style={styles.activityRow}>
-              <View style={styles.bagIcon}><View style={styles.bagHandle} /></View>
+          {recentActivity.map((activity, index) => (
+            <View key={`${activity.name}-${index}`} style={styles.activityRow}>
+              <View style={styles.bagIcon}><DesignIcon name="shoppingBag" size={28} /></View>
               <View style={styles.activityCopy}>
                 <Text style={styles.activityName}>{activity.name}</Text>
                 <Text style={styles.activityDetail}>{activity.detail} · Saved {activity.savings}</Text>
@@ -140,6 +155,7 @@ export function HomeScreen({ navigation }: Props) {
           ))}
         </View>
       </ScrollView>
+      <AppBottomNav active="home" navigation={navigation} />
     </SafeAreaView>
   );
 }
@@ -150,51 +166,43 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   content: {
-    paddingBottom: 24,
+    paddingBottom: 8,
   },
   hero: {
-    backgroundColor: '#0A3D1D',
-    minHeight: 202,
-    paddingHorizontal: 20,
-    paddingTop: 24,
+    overflow: 'hidden',
+    width: '100%',
   },
+  heroContent: { paddingHorizontal: 27 },
   heroTopRow: {
-    alignItems: 'flex-start',
+    alignItems: 'center',
     flexDirection: 'row',
     justifyContent: 'space-between',
   },
-  eyebrow: {
-    color: '#B7D7B5',
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 1,
-  },
+  brandRow: { alignItems: 'center', flex: 1, flexDirection: 'row', gap: 5, minWidth: 0 },
+  brandCopy: { flexShrink: 1, minWidth: 0 },
   title: {
     color: '#F5FFF1',
+    fontFamily: 'Monda_700Bold',
     fontSize: 36,
-    fontWeight: '700',
-    letterSpacing: 0,
-    marginTop: 7,
+    lineHeight: 45,
   },
+  titleAccent: { color: '#96F9A3' },
   tagline: {
-    color: '#D1EAD2',
-    fontSize: 14,
-    marginTop: 2,
+    color: '#FFFFFF',
+    fontFamily: 'Monda_400Regular',
+    fontSize: 11,
+    marginTop: -9,
+    textAlign: 'right',
   },
   profileButton: {
     alignItems: 'center',
-    backgroundColor: '#E4F1B7',
+    backgroundColor: '#E8F5BC',
     borderColor: '#FFFFFF',
     borderRadius: 24,
     borderWidth: 2,
-    height: 48,
+    height: 40,
     justifyContent: 'center',
-    width: 48,
-  },
-  profileInitial: {
-    color: '#174C29',
-    fontSize: 21,
-    fontWeight: '700',
+    width: 44,
   },
   searchBar: {
     alignItems: 'center',
@@ -202,183 +210,66 @@ const styles = StyleSheet.create({
     borderColor: '#D9DED8',
     borderRadius: 28,
     borderWidth: 1,
-    bottom: -25,
+    bottom: -17,
     flexDirection: 'row',
-    height: 54,
-    paddingHorizontal: 18,
-  },
-  searchIcon: {
-    color: '#285A38',
-    fontSize: 12,
-    fontWeight: '700',
-    marginRight: 10,
+    gap: 10,
+    height: 49,
+    paddingHorizontal: 22,
   },
   searchInput: {
     color: '#1D2B20',
     flex: 1,
-    fontSize: 16,
+    fontFamily: 'Monda_400Regular',
+    fontSize: 14,
     height: '100%',
   },
   quickActionRow: {
     flexDirection: 'row',
-    gap: 10,
-    paddingHorizontal: 20,
-    paddingTop: 48,
+    justifyContent: 'space-between',
+    paddingHorizontal: 51,
+    paddingTop: 56,
   },
   quickAction: {
     alignItems: 'center',
-    borderColor: '#DCE3DC',
-    borderRadius: 8,
-    borderWidth: 1,
     flex: 1,
-    minHeight: 152,
-    paddingHorizontal: 8,
-    paddingTop: 18,
+    maxWidth: 94,
+    minHeight: 102,
+    paddingHorizontal: 2,
   },
-  actionSymbol: {
+  actionIconShell: {
     alignItems: 'center',
-    borderRadius: 28,
-    height: 56,
+    height: 61,
     justifyContent: 'center',
-    width: 56,
-  },
-  actionSymbolDot: {
-    backgroundColor: '#167438',
-    borderRadius: 10,
-    height: 20,
-    width: 20,
+    width: 59,
   },
   quickActionTitle: {
     color: '#17231A',
-    fontSize: 14,
-    fontWeight: '700',
-    marginTop: 12,
-    textAlign: 'center',
-  },
-  quickActionSubtitle: {
-    color: '#68746B',
-    fontSize: 11,
-    lineHeight: 15,
-    marginTop: 4,
+    fontFamily: 'Monda_700Bold',
+    fontSize: 12,
+    marginTop: 6,
     textAlign: 'center',
   },
   sectionHeader: {
     alignItems: 'center',
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginTop: 28,
-    paddingHorizontal: 20,
+    marginTop: 20,
+    paddingHorizontal: 32,
   },
   sectionTitle: {
     color: '#17231A',
-    fontSize: 21,
-    fontWeight: '700',
+    fontFamily: 'Monda_700Bold',
+    fontSize: 16,
   },
-  locationLabel: {
-    color: '#668170',
-    fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 0.8,
-  },
+  mapHeader: { marginTop: 8 },
   mapPreview: {
-    backgroundColor: '#E9EEE8',
-    borderColor: '#D5DED4',
-    borderRadius: 8,
-    borderWidth: 1,
-    height: 184,
-    marginHorizontal: 20,
-    marginTop: 14,
+    aspectRatio: 392 / 251,
+    borderRadius: 18,
+    marginHorizontal: 27,
+    marginTop: 10,
     overflow: 'hidden',
   },
-  road: {
-    backgroundColor: '#BAC6D7',
-    height: 18,
-    opacity: 0.95,
-    position: 'absolute',
-  },
-  roadOne: {
-    left: -50,
-    top: 86,
-    transform: [{ rotate: '-16deg' }],
-    width: 250,
-  },
-  roadTwo: {
-    right: -72,
-    top: 52,
-    transform: [{ rotate: '24deg' }],
-    width: 250,
-  },
-  roadThree: {
-    left: 92,
-    top: -48,
-    transform: [{ rotate: '90deg' }],
-    width: 240,
-  },
-  mapPlaceLabel: {
-    color: '#667068',
-    fontSize: 16,
-    fontWeight: '700',
-    left: 24,
-    lineHeight: 20,
-    position: 'absolute',
-    top: 82,
-  },
-  mapPin: {
-    alignItems: 'center',
-    backgroundColor: '#D94C3A',
-    borderColor: '#FFFFFF',
-    borderRadius: 13,
-    borderWidth: 2,
-    height: 26,
-    justifyContent: 'center',
-    position: 'absolute',
-    width: 26,
-  },
-  pinOne: { left: 120, top: 46 },
-  pinTwo: { left: 170, top: 108 },
-  pinCenter: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 4,
-    height: 8,
-    width: 8,
-  },
-  routeSummary: {
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 8,
-    bottom: 13,
-    flexDirection: 'row',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    position: 'absolute',
-    right: 12,
-  },
-  routeIndicator: {
-    alignItems: 'center',
-    backgroundColor: '#E1F4DE',
-    borderRadius: 18,
-    height: 36,
-    justifyContent: 'center',
-    width: 36,
-  },
-  routeIndicatorDot: {
-    backgroundColor: '#16803B',
-    borderRadius: 6,
-    height: 12,
-    width: 12,
-  },
-  routeSummaryCopy: { marginLeft: 8 },
-  routeSummaryTitle: {
-    color: '#1E2921',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  routeSummaryDetail: {
-    color: '#167438',
-    fontSize: 13,
-    fontWeight: '700',
-    marginTop: 2,
-  },
+  mapImage: { height: '100%', width: '100%' },
   chevron: {
     color: '#7D8980',
     fontSize: 26,
@@ -388,50 +279,36 @@ const styles = StyleSheet.create({
   hideAll: {
     color: '#167438',
     fontSize: 14,
-    fontWeight: '700',
+    fontFamily: 'Monda_700Bold',
   },
   activityList: {
-    marginHorizontal: 20,
-    marginTop: 9,
+    marginHorizontal: 31,
+    marginTop: 5,
   },
   activityRow: {
     alignItems: 'center',
     borderBottomColor: '#E5E9E5',
     borderBottomWidth: StyleSheet.hairlineWidth,
     flexDirection: 'row',
-    minHeight: 68,
+    minHeight: 44,
   },
   bagIcon: {
-    borderColor: '#386144',
-    borderRadius: 2,
-    borderWidth: 1.5,
-    height: 25,
-    marginLeft: 3,
+    alignItems: 'center',
+    height: 34,
+    justifyContent: 'center',
     marginRight: 15,
-    marginTop: 5,
-    width: 21,
-  },
-  bagHandle: {
-    borderColor: '#386144',
-    borderRadius: 6,
-    borderWidth: 1.5,
-    height: 9,
-    left: 4,
-    position: 'absolute',
-    top: -7,
-    width: 10,
+    width: 34,
   },
   activityCopy: { flex: 1 },
   activityName: {
     color: '#1D2820',
-    fontSize: 16,
-    fontWeight: '700',
+    fontFamily: 'Monda_700Bold',
+    fontSize: 14,
   },
   activityDetail: {
     color: '#647067',
-    fontSize: 13,
-    fontWeight: '600',
-    marginTop: 2,
+    fontFamily: 'Monda_700Bold',
+    fontSize: 12,
   },
   pressed: { opacity: 0.72 },
 });

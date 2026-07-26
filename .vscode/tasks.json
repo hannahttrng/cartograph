@@ -1,0 +1,30 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Cartograph: Native iOS Build",
+			"type": "shell",
+			"command": "xcodebuild",
+			"args": [
+				"-workspace",
+				"ios/Cartograph.xcworkspace",
+				"-scheme",
+				"Cartograph",
+				"-configuration",
+				"Debug",
+				"-sdk",
+				"iphonesimulator",
+				"-destination",
+				"platform=iOS Simulator,id=F52D1619-B514-4624-8264-DDA8FEFED5FE",
+				"-derivedDataPath",
+				"${env:TMPDIR}/CartographNativeBuild",
+				"build"
+			],
+			"isBackground": false,
+			"problemMatcher": [
+				"$gcc"
+			],
+			"group": "build"
+		}
+	]
+}

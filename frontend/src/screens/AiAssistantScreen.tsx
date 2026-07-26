@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import {
   ActivityIndicator,
   Pressable,
@@ -11,13 +12,15 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { askCarter, importRecipe, toApiError } from '../api';
-import type { MainTabScreenProps } from '../navigation/types';
+import { AppBottomNav, DesignIcon } from '../components/common';
+import type { RootStackParamList } from '../navigation/types';
 import type {
+  AssistantChatMessage,
   AssistantRecipeImportResponse,
   RecipeSourceType,
 } from '../types/api';
 
-type Props = MainTabScreenProps<'AiAssistant'>;
+type Props = NativeStackScreenProps<RootStackParamList, 'AiAssistant'>;
 type CarterMode = 'list' | 'chat';
 
 export function AiAssistantScreen({ navigation }: Props) {
@@ -25,7 +28,7 @@ export function AiAssistantScreen({ navigation }: Props) {
   const [sourceType, setSourceType] = useState<RecipeSourceType>('auto');
   const [carterMode, setCarterMode] = useState<CarterMode>('list');
   const [result, setResult] = useState<AssistantRecipeImportResponse | null>(null);
-  const [chatReply, setChatReply] = useState<string | null>(null);
+  const [chatMessages, setChatMessages] = useState<AssistantChatMessage[]>([]);
   const [selectedIngredients, setSelectedIngredients] = useState<string[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -45,11 +48,16 @@ export function AiAssistantScreen({ navigation }: Props) {
     setIsSubmitting(true);
     setErrorMessage(null);
     setResult(null);
-    setChatReply(null);
     try {
       if (carterMode === 'chat') {
-        const response = await askCarter({ message: source });
-        setChatReply(response.message);
+        const history = chatMessages.slice(-12);
+        const response = await askCarter({ message: source, messages: history });
+        setChatMessages((currentMessages) => [
+          ...currentMessages,
+          { role: 'user', content: source },
+          { role: 'assistant', content: response.message },
+        ]);
+        setRecipeSource('');
       } else {
         const importedRecipe = await importRecipe({ source, sourceType });
         setResult(importedRecipe);
@@ -74,15 +82,28 @@ export function AiAssistantScreen({ navigation }: Props) {
     if (!result || selectedIngredients.length === 0) {
       return;
     }
+    const selectedTags = result.ingredients
+      .filter((ingredient) => selectedIngredients.includes(ingredient.name))
+      .flatMap((ingredient) => ingredient.tags);
     navigation.navigate('NewShoppingList', {
       initialItems: selectedIngredients,
+      initialTags: [...new Set(selectedTags)],
       title: result.title ?? 'Recipe ingredients',
     });
   };
 
   return (
-    <SafeAreaView edges={['bottom']} style={styles.screen}>
-      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+    <SafeAreaView edges={['top', 'bottom']} style={styles.screen}>
+      <ScrollView
+        bounces
+        contentContainerStyle={styles.content}
+        keyboardDismissMode="on-drag"
+        keyboardShouldPersistTaps="handled"
+        nestedScrollEnabled
+        scrollEnabled
+        showsVerticalScrollIndicator
+        style={styles.scrollView}
+      >
         <Text accessibilityRole="header" style={styles.title}>
           Ask Carter
         </Text>
@@ -102,7 +123,7 @@ export function AiAssistantScreen({ navigation }: Props) {
                 setCarterMode(mode);
                 setErrorMessage(null);
                 setResult(null);
-                setChatReply(null);
+                setChatMessages([]);
               }}
               style={[styles.modeButton, carterMode === mode && styles.modeButtonSelected]}
             >
@@ -158,7 +179,7 @@ export function AiAssistantScreen({ navigation }: Props) {
           onPress={() => void handleSubmit()}
           style={({ pressed }) => [styles.button, (pressed || isSubmitting) && styles.buttonPressed]}
         >
-          {isSubmitting ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.buttonText}>{carterMode === 'list' ? 'Create shopping list' : 'Ask Carter'}</Text>}
+          {isSubmitting ? <ActivityIndicator color="#FFFFFF" /> : <View style={styles.buttonContent}><Text style={styles.buttonText}>{carterMode === 'list' ? 'Create shopping list' : 'Ask Carter'}</Text><DesignIcon name={carterMode === 'list' ? 'plus' : 'send'} size={20} /></View>}
         </Pressable>
 
         {errorMessage ? (
@@ -167,10 +188,19 @@ export function AiAssistantScreen({ navigation }: Props) {
           </Text>
         ) : null}
 
-        {chatReply ? (
-          <View style={styles.chatReply}>
-            <Text accessibilityRole="header" style={styles.resultTitle}>Carter</Text>
-            <Text style={styles.chatReplyText}>{chatReply}</Text>
+        {carterMode === 'chat' && chatMessages.length > 0 ? (
+          <View style={styles.chatTranscript}>
+            {chatMessages.map((message, index) => (
+              <View
+                key={`${message.role}-${index}`}
+                style={message.role === 'user' ? styles.userMessage : styles.chatReply}
+              >
+                <Text style={styles.chatMessageLabel}>
+                  {message.role === 'user' ? 'You' : 'Carter'}
+                </Text>
+                <Text style={styles.chatReplyText}>{message.content}</Text>
+              </View>
+            ))}
           </View>
         ) : null}
 
@@ -225,6 +255,7 @@ export function AiAssistantScreen({ navigation }: Props) {
           </View>
         ) : null}
       </ScrollView>
+      <AppBottomNav active="carter" navigation={navigation} />
     </SafeAreaView>
   );
 }
@@ -234,9 +265,13 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     flex: 1,
   },
+  scrollView: {
+    flex: 1,
+  },
   content: {
+    flexGrow: 1,
     padding: 24,
-    paddingBottom: 40,
+    paddingBottom: 72,
   },
   title: {
     color: '#1F2933',
@@ -286,6 +321,7 @@ const styles = StyleSheet.create({
     minHeight: 48,
     paddingHorizontal: 16,
   },
+  buttonContent: { alignItems: 'center', flexDirection: 'row', gap: 10 },
   buttonPressed: {
     opacity: 0.65,
   },
@@ -305,6 +341,10 @@ const styles = StyleSheet.create({
     marginTop: 28,
     paddingTop: 20,
   },
+  chatTranscript: {
+    gap: 12,
+    marginTop: 24,
+  },
   chatReply: {
     backgroundColor: '#F2F9F0',
     borderColor: '#DCE5DC',
@@ -313,6 +353,14 @@ const styles = StyleSheet.create({
     marginTop: 24,
     padding: 16,
   },
+  userMessage: {
+    alignSelf: 'flex-end',
+    backgroundColor: '#E7EDF6',
+    borderRadius: 8,
+    maxWidth: '88%',
+    padding: 16,
+  },
+  chatMessageLabel: { color: '#526E5A', fontSize: 13, fontWeight: '700' },
   chatReplyText: { color: '#1F2933', fontSize: 15, lineHeight: 22, marginTop: 8 },
   resultTitle: { color: '#1B2A1E', fontSize: 20, fontWeight: '700' },
   resultDescription: { color: '#526E5A', fontSize: 14, marginTop: 5 },

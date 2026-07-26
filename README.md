@@ -66,26 +66,42 @@ EXPO_PUBLIC_USE_MOCK_DATA=true npm start
 
 ### Current frontend prototype
 
-The application uses a persistent bottom navigation bar with Home, Lists,
-Routes, Carter, and Account tabs. The Routes tab currently renders three
-best-first candidates adapted from the deterministic milk-and-bread optimizer
-fixture in `backend/tests/test_route_optimizer.py`. Each card shows its rank,
-Store count, distance, travel time, and Product purchase total; expanding a
-card reveals the ordered Stores and assigned Products.
+The application uses a flat native stack with a custom footer for Home, Lists,
+Stores, Routes, and Carter. Account, list editing, route preview, and map views
+remain stack details. The incoming Monda/SVG visual system is shared across
+these screens.
 
 The Lists tab calls the implemented `/api/v1/tags` and
 `/api/v1/shopping-lists` endpoints. It loads backend Shopping Lists, accepts
 only catalog Tags, creates lists, uses name-only PATCH requests when possible,
 replaces item drafts with PUT, and deletes server records. Parsed live and mock
-responses pass through the same runtime contract checks. The stack-only New
-List screen remains a separate device-local collections prototype; its
-AsyncStorage records are not synchronized with backend Shopping Lists.
+responses pass through the same runtime contract checks. Backend Shopping Lists
+own list names, items, and numeric IDs. Favorites, archive state, and collection
+assignment are optional device-local metadata keyed by those server IDs; they
+do not synchronize across devices. Legacy device-local free-text lists are
+discarded rather than guessed into catalog Tags.
 
-Opening a route pushes a focused map screen above the tabs. That screen embeds
-the public `CARTograph_2` ArcGIS Web Map and falls back to the selected route's
-local Store sequence when the WebView, network, or WebGL2 is unavailable. It
-does not use or expose `ARCGIS_API_KEY`; the public share link is also available
-as an external-browser fallback.
+The Routes footer and the post-save Route Preview render three best-first
+candidates adapted from the deterministic milk-and-bread optimizer fixture in
+`backend/tests/test_route_optimizer.py`. Each card shows its rank, Store count,
+distance, travel time, and Product purchase total; expanding a card reveals the
+ordered Stores and assigned Products. Preview labels explicitly distinguish
+these fixtures from routes calculated for the user's saved list.
+
+The route map embeds the hackathon ArcGIS Web Map without requiring backend
+route geometry. Override the Web Map item or organization portal before
+starting Expo when those resources change:
+
+```sh
+EXPO_PUBLIC_ARCGIS_WEB_MAP_ITEM_ID="1114223c46f948c4b17a6ddb8c3e4865" \
+EXPO_PUBLIC_ARCGIS_PORTAL_URL="https://intern-hackathon.maps.arcgis.com" \
+npm start
+```
+
+The Web Map and referenced layers must be accessible to the signed-in user or
+publicly shared. If the embedded map cannot load, Cartograph offers retry and
+external-browser actions and retains the selected fixture's local Store
+sequence as a text fallback.
 
 Shopping List CRUD is integrated, but submission does not call route
 optimization. The displayed route Store/Product details remain fixture
@@ -191,6 +207,13 @@ It returns a title, structured ingredient names, optional quantities and units,
 normalized grocery tags, and any warnings. Recipe URLs must resolve to a public
 host, return HTML, complete within three redirects, and fit within a 1 MB
 response limit. When a URL cannot be read, paste the recipe text instead.
+
+### Carter chat
+
+Carter chat accepts a current `message` plus up to 12 prior `messages` for
+short-lived conversational context. Each history item has a `role` of `user` or
+`assistant` and a non-empty `content` value. The client owns this transcript;
+the backend does not persist chat history.
 
 ### Catalog classification and Product modifiers
 

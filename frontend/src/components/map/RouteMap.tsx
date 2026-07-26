@@ -28,7 +28,8 @@ export function RouteMap({
   return (
     <View style={styles.container}>
       <ArcGISMapAdapter
-        key={reloadKey}
+        key={`${mapData.routeId}-${reloadKey}`}
+        mapData={mapData}
         onError={onError}
         onLoad={onLoad}
         onLoadStart={onLoadStart}

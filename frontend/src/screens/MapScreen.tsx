@@ -4,7 +4,7 @@ import { Linking, Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { RouteMap } from '../components/map/RouteMap';
-import { ARCGIS_TEST_WEB_MAP_SHARE_URL } from '../constants/maps';
+import { ARCGIS_WEB_MAP_BROWSER_URL } from '../constants/config';
 import type { RootStackParamList } from '../navigation/types';
 import type { MapRouteData, MapState } from '../types/maps';
 import type { Store } from '../types/models';
@@ -39,7 +39,7 @@ export function MapScreen({ route }: Props) {
 
   const openInBrowser = useCallback(async () => {
     try {
-      await Linking.openURL(ARCGIS_TEST_WEB_MAP_SHARE_URL);
+      await Linking.openURL(ARCGIS_WEB_MAP_BROWSER_URL);
     } catch {
       setMapState('mapUnavailable');
     }

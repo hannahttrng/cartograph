@@ -12,12 +12,12 @@ Use `README.md` for product behavior, setup details, and public API examples. Ke
 ## Frontend Ownership And Flow
 
 - `frontend/App.tsx::App()` is the frontend composition root. It wraps the application in `SafeAreaProvider` and `NavigationContainer`, then renders `RootNavigator`.
-- `frontend/src/navigation/RootNavigator.tsx` owns stack-only detail screens around `MainTabNavigator`, which owns the persistent Home, Lists, Routes, Carter, and Account tabs. `frontend/src/navigation/types.ts` owns both parameter lists and their composite screen props; update the navigators, parameter types, and every affected caller together.
+- `frontend/src/navigation/RootNavigator.tsx` owns the flat native stack. Primary screens render `frontend/src/components/common/AppBottomNav.tsx`, whose footer destinations are Home, Lists, Stores, Routes, and Carter. `frontend/src/navigation/types.ts` owns the single root parameter list; update the navigator, parameters, footer, and affected callers together.
 - `frontend/src/screens/` owns user journeys, local React state, and loading, success, empty, and error rendering. Keep HTTP configuration and endpoint paths in `frontend/src/api/` rather than calling Axios or `fetch` directly from screens.
 - `frontend/src/api/client.ts` owns the shared Axios instance, transport-error conversion, timeout defaults, and path-ID encoding. Endpoint modules own live/mock selection and response adaptation; do not create a second HTTP client for a feature.
 - `frontend/src/constants/config.ts` owns `API_BASE_URL`, `USE_MOCK_DATA`, and `API_TIMEOUT_MS`. The base URL intentionally excludes `/api/v1`; integrated endpoint modules must use the complete versioned path.
 - Keep the frontend type families distinct: `types/api.ts` describes frontend HTTP payloads, `types/models.ts` contains denormalized UI models, `types/maps.ts` contains map-view models, and `types/savedLists.ts` contains device-local persistence models. Similar names across these files do not make the shapes interchangeable.
-- `frontend/src/utils/savedListsStorage.ts` is the AsyncStorage boundary for local collections and saved lists. Screens should not access AsyncStorage directly, and these records must not be treated as persisted backend ShoppingLists.
+- `frontend/src/utils/savedListsStorage.ts` is the AsyncStorage boundary for device-local favorites, archive state, and collections keyed by positive backend ShoppingList IDs. Backend ShoppingLists remain authoritative for names and items; screens must not access AsyncStorage directly or treat metadata as server state.
 - Shared application state currently consists of local React hooks and typed navigation parameters. Introduce a global state provider only when a concrete cross-screen ownership or synchronization requirement calls for one.
 
 ## Frontend Contract Boundaries
@@ -105,7 +105,7 @@ Before connecting a React Native flow to a backend endpoint:
 Resolve each applicable group as one integration slice rather than hiding it behind casts or fallback data:
 
 - Backend ShoppingList IDs and their contract-parity mock IDs are positive numbers. Fixture route and `Map` navigation IDs remain strings in the separate UI model.
-- `ShoppingListScreen` sends structured `{ tag, modifiers, unit, quantity }` items and preserves resolved metadata when editing. The separate device-local `NewShoppingListScreen` still uses its local saved-list shape and is not backend synchronization.
+- `NewShoppingListScreen` is the backend-authoritative create/edit surface. It sends structured `{ tag, modifiers, unit, quantity }` items, preserves resolved metadata when editing, and uses POST, name-only PATCH, item-replacement PUT, and DELETE through `frontend/src/api/lists.ts`.
 - Route optimization requires `latitude` and `longitude`, but the frontend currently has no location permission, location service, or manual-coordinate input flow.
 - RouteOptimizationResponse candidates are already coverage-first and best-first, with lower score preferred after coverage. Preserve server order; the fixture-backed `RoutesScreen` already follows this ordering.
 - RouteCandidates contain Store and Product IDs. The backend exposes no Product or Store read endpoint yet, so the current nested UI Route model cannot be hydrated from the live API without an additional catalog contract.

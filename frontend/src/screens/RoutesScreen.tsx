@@ -1,19 +1,21 @@
 import { useState } from 'react';
+import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { FlatList, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { AppBottomNav, StatusBanner } from '../components/common';
 import { RouteCard } from '../components/route/RouteCard';
 import { routeOptimizerFixture } from '../data/routeOptimizerFixture';
-import type { MainTabScreenProps } from '../navigation/types';
+import type { RootStackParamList } from '../navigation/types';
 import { styles } from './RoutesScreen.styles';
 
-type Props = MainTabScreenProps<'Routes'>;
+type Props = NativeStackScreenProps<RootStackParamList, 'Routes'>;
 
 export function RoutesScreen({ navigation }: Props) {
   const [expandedRouteId, setExpandedRouteId] = useState<string | null>(null);
 
   return (
-    <SafeAreaView edges={['bottom']} style={styles.screen}>
+    <SafeAreaView edges={['top']} style={styles.screen}>
       <FlatList
         contentContainerStyle={styles.content}
         data={routeOptimizerFixture}
@@ -21,10 +23,13 @@ export function RoutesScreen({ navigation }: Props) {
         keyExtractor={(item) => item.id}
         ListHeaderComponent={
           <View style={styles.header}>
-            <Text accessibilityRole="header" style={styles.title}>Ranked routes</Text>
+            <Text accessibilityRole="header" style={styles.title}>Route Preview</Text>
             <Text style={styles.subtitle}>
-              Milk and bread routes from a deterministic optimizer run.
+              Explore ranked sample routes while live location routing is being connected.
             </Text>
+            <View style={styles.banner}>
+              <StatusBanner message="Deterministic milk and bread preview" tone="loading" />
+            </View>
           </View>
         }
         renderItem={({ item, index }) => (
@@ -40,6 +45,7 @@ export function RoutesScreen({ navigation }: Props) {
           />
         )}
       />
+      <AppBottomNav active="routes" navigation={navigation} />
     </SafeAreaView>
   );
 }

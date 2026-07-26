@@ -1,41 +1,31 @@
-import type {
-  BottomTabNavigationProp,
-  BottomTabScreenProps,
-} from '@react-navigation/bottom-tabs';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-
+import type { EntityId } from '../types/api';
 import type { Route } from '../types/models';
 
-export type MainTabParamList = {
+export type RootStackParamList = {
   Home: undefined;
-  ShoppingList: undefined;
+  Login: undefined;
+  ImportRecipes: undefined;
+  NearbyStores: undefined;
+  SavedLists: undefined;
   Routes: undefined;
   AiAssistant: undefined;
   Account: undefined;
-};
-
-export type RootStackParamList = {
-  MainTabs:
-    | {
-        screen?: keyof MainTabParamList;
-        params?: MainTabParamList[keyof MainTabParamList];
-      }
-    | undefined;
   NewShoppingList:
     | {
         initialItems?: string[];
+        initialTags?: string[];
+        listId?: EntityId;
         title?: string;
       }
     | undefined;
   NearbyDeals: undefined;
+  RouteResults: {
+    items: string[];
+    listId: EntityId;
+    listName?: string;
+  };
   Map: {
     route: Route;
     routeId: string;
   };
 };
-
-export type MainTabScreenProps<Screen extends keyof MainTabParamList> =
-  Omit<BottomTabScreenProps<MainTabParamList, Screen>, 'navigation'> & {
-    navigation: BottomTabNavigationProp<MainTabParamList, Screen> &
-      NativeStackNavigationProp<RootStackParamList>;
-  };

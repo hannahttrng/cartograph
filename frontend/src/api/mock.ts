@@ -1,6 +1,10 @@
 import type {
   CatalogTag,
   EntityId,
+  AssistantChatRequest,
+  AssistantChatResponse,
+  AssistantRecipeImportRequest,
+  AssistantRecipeImportResponse,
   GetMapResponse,
   GetRoutesRequest,
   GetRoutesResponse,
@@ -97,7 +101,61 @@ const cloneRoutes = (): GetRoutesResponse =>
     })),
   }));
 
+const mockRecipeFor = (
+  request: AssistantRecipeImportRequest,
+): AssistantRecipeImportResponse => {
+  const source = request.source.toLowerCase();
+
+  if (source.includes('taco')) {
+    return {
+      title: 'Taco night',
+      ingredients: [
+        { name: 'Ground beef', quantity: '1', unit: 'lb', note: null, tags: ['ground beef'] },
+        { name: 'Tortillas', quantity: '12', unit: null, note: null, tags: ['tortillas'] },
+        { name: 'Lettuce', quantity: '1', unit: 'head', note: null, tags: ['lettuce'] },
+        { name: 'Tomatoes', quantity: '2', unit: null, note: null, tags: ['tomatoes'] },
+        { name: 'Shredded cheese', quantity: '8', unit: 'oz', note: null, tags: ['cheese'] },
+      ],
+      tags: ['ground beef', 'tortillas', 'lettuce', 'tomatoes', 'cheese'],
+      warnings: ['Ingredients and quantities are suggested for a meal idea.'],
+    };
+  }
+
+  return {
+    title: 'Suggested meal ingredients',
+    ingredients: [
+      { name: 'Pasta', quantity: '1', unit: 'lb', note: null, tags: ['pasta'] },
+      { name: 'Tomato sauce', quantity: '24', unit: 'oz', note: null, tags: ['tomato sauce'] },
+      { name: 'Spinach', quantity: '5', unit: 'oz', note: null, tags: ['spinach'] },
+      { name: 'Parmesan cheese', quantity: '4', unit: 'oz', note: null, tags: ['parmesan cheese'] },
+    ],
+    tags: ['pasta', 'tomato sauce', 'spinach', 'parmesan cheese'],
+    warnings: ['Mock mode uses a sample ingredient list. Connect Carter for source-specific results.'],
+  };
+};
+
+const mockChatResponse = (request: AssistantChatRequest): AssistantChatResponse => {
+  const question = request.message.toLowerCase();
+  if (question.includes('cheapest') || question.includes('save money')) {
+    return {
+      message: 'I can help compare route costs after you build a shopping list. Add the items you need, then open route recommendations to compare the available totals.',
+    };
+  }
+
+  return {
+    message: 'I can help with meal planning, grocery ideas, and using Cartograph. For a ready-to-edit ingredient list, switch to Build list and describe the meal you want to make.',
+  };
+};
+
 export const mockApi = {
+  importRecipe(request: AssistantRecipeImportRequest): AssistantRecipeImportResponse {
+    return mockRecipeFor(request);
+  },
+
+  askCarter(request: AssistantChatRequest): AssistantChatResponse {
+    return mockChatResponse(request);
+  },
+
   listCatalogTags(): readonly CatalogTag[] {
     return catalogTags.map((tag) => ({ ...tag, products: [...tag.products] }));
   },
