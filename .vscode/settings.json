@@ -1,0 +1,10 @@
+{
+    "chat.mcp.serverSampling": {
+        "cartography/.vscode/mcp.json: my-mcp-server-1e832e32": {
+            "allowedModels": [
+                "copilotcli/auto",
+                "copilot/auto"
+            ]
+        }
+    }
+}

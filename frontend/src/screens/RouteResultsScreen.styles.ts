@@ -29,7 +29,12 @@ export const styles = StyleSheet.create({
     lineHeight: 22,
     marginTop: 6,
   },
+  routeModes: {
+    marginBottom: 14,
+    marginTop: 16,
+  },
   routeCard: {
+    backgroundColor: '#FFFFFF',
     borderColor: '#D9E2EC',
     borderRadius: 8,
     borderWidth: 1,
@@ -37,7 +42,7 @@ export const styles = StyleSheet.create({
     padding: 16,
   },
   routeCardSelected: {
-    borderColor: '#243B53',
+    borderColor: '#147C36',
     borderWidth: 2,
   },
   routeCardPressed: {
@@ -54,7 +59,7 @@ export const styles = StyleSheet.create({
     fontWeight: '600',
   },
   score: {
-    color: '#0F766E',
+    color: '#147C36',
     fontSize: 14,
     fontWeight: '600',
   },
@@ -162,7 +167,7 @@ export const styles = StyleSheet.create({
   },
   mapButton: {
     alignItems: 'center',
-    backgroundColor: '#243B53',
+    backgroundColor: '#147C36',
     borderRadius: 8,
     justifyContent: 'center',
     marginTop: 24,

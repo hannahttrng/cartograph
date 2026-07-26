@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import {
   ActivityIndicator,
@@ -10,6 +10,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { getRoutes, toApiError } from '../api';
+import { FilterTabs, StatusBanner } from '../components/common';
 import type { RootStackParamList } from '../navigation/types';
 import type { GetRoutesRequest } from '../types/api';
 import type { Product, Route } from '../types/models';
@@ -17,10 +18,13 @@ import { styles } from './RouteResultsScreen.styles';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'RouteResults'>;
 
-interface RouteRequest extends GetRoutesRequest {
-  items: string[];
-  listId?: string;
-}
+type RouteMode = 'overall' | 'cheapest' | 'fastest';
+
+const routeModes = [
+  { label: 'Best Overall', value: 'overall' },
+  { label: 'Cheapest', value: 'cheapest' },
+  { label: 'Fastest', value: 'fastest' },
+] as const;
 
 const formatCost = (route: Route): string => {
   const cost = route.products.reduce((total, product) => total + product.price, 0);
@@ -45,6 +49,7 @@ export function RouteResultsScreen({ navigation, route }: Props) {
   const { items, listId } = route.params;
   const [routes, setRoutes] = useState<Route[]>([]);
   const [selectedRouteIndex, setSelectedRouteIndex] = useState(0);
+  const [routeMode, setRouteMode] = useState<RouteMode>('overall');
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -53,10 +58,8 @@ export function RouteResultsScreen({ navigation, route }: Props) {
     setErrorMessage(null);
 
     try {
-      const response = await getRoutes<Route[], RouteRequest>({ items, listId });
-      const rankedRoutes = [...response].sort((firstRoute, secondRoute) => secondRoute.score - firstRoute.score);
-
-      setRoutes(rankedRoutes);
+      const response = await getRoutes({ items, listId });
+      setRoutes(response);
       setSelectedRouteIndex(0);
     } catch (error: unknown) {
       setRoutes([]);
@@ -70,10 +73,19 @@ export function RouteResultsScreen({ navigation, route }: Props) {
     void loadRoutes();
   }, [loadRoutes]);
 
-  const selectedRoute = routes[selectedRouteIndex];
+  const displayedRoutes = useMemo(() => {
+    const routeCost = (candidate: Route) => candidate.products.reduce((total, product) => total + product.price, 0);
+    return [...routes].sort((first, second) => {
+      if (routeMode === 'cheapest') return routeCost(first) - routeCost(second);
+      if (routeMode === 'fastest') return first.time - second.time;
+      return first.score - second.score;
+    });
+  }, [routeMode, routes]);
+
+  const selectedRoute = displayedRoutes[selectedRouteIndex];
 
   return (
-    <SafeAreaView edges={['bottom']} style={styles.screen}>
+    <SafeAreaView edges={['top', 'bottom']} style={styles.screen}>
       {isLoading ? (
         <View style={styles.centeredState}>
           <ActivityIndicator size="large" color="#243B53" />
@@ -105,7 +117,7 @@ export function RouteResultsScreen({ navigation, route }: Props) {
       ) : (
         <FlatList
           contentContainerStyle={styles.content}
-          data={routes}
+          data={displayedRoutes}
           keyExtractor={(_, index) => `route-${index}`}
           ListFooterComponent={
             selectedRoute ? (
@@ -169,6 +181,17 @@ export function RouteResultsScreen({ navigation, route }: Props) {
               <Text style={styles.subtitle}>
                 Ranked for {items.length} {items.length === 1 ? 'item' : 'items'} on your list.
               </Text>
+              <View style={styles.routeModes}>
+                <FilterTabs<RouteMode>
+                  onChange={(mode) => {
+                    setRouteMode(mode);
+                    setSelectedRouteIndex(0);
+                  }}
+                  options={routeModes}
+                  value={routeMode}
+                />
+              </View>
+              <StatusBanner message="Routes Loaded" tone="success" />
             </View>
           }
           renderItem={({ item, index }) => {
@@ -186,7 +209,11 @@ export function RouteResultsScreen({ navigation, route }: Props) {
                 ]}
               >
                 <View style={styles.routeCardHeader}>
-                  <Text style={styles.routeLabel}>Option {index + 1}</Text>
+                  <Text style={styles.routeLabel}>
+                    {index === 0
+                      ? routeModes.find((mode) => mode.value === routeMode)?.label
+                      : `Option ${index + 1}`}
+                  </Text>
                   <Text style={styles.score}>{formatScore(item.score)}</Text>
                 </View>
                 <View style={styles.metrics}>

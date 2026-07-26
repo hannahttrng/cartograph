@@ -3,6 +3,12 @@ import { Keyboard, Pressable, ScrollView, Text, TextInput, View } from 'react-na
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import BuildListMascot from '../../assets/svg icons/Group 15.svg';
+import BackIcon from '../../assets/svg icons/keyboard_arrow_up.svg';
+import DairyIcon from '../../assets/svg icons/dairy 1.svg';
+import MeatIcon from '../../assets/svg icons/meat 1.svg';
+import ProduceIcon from '../../assets/svg icons/produce 1.svg';
+import { AppBottomNav, DesignIcon, FilterTabs } from '../components/common';
 import type { RootStackParamList } from '../navigation/types';
 import type {
   SavedShoppingList,
@@ -17,34 +23,38 @@ import {
 import { styles } from './NewShoppingListScreen.styles';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'NewShoppingList'>;
+type Category = 'all' | 'dairy' | 'produce' | 'meat' | 'pantry' | 'bakery';
+
+const categories = [
+  { label: 'All items', value: 'all' },
+  { icon: <DairyIcon height={18} width={15} />, label: 'Dairy', value: 'dairy' },
+  { icon: <ProduceIcon height={14} width={13} />, label: 'Produce', value: 'produce' },
+  { icon: <MeatIcon height={18} width={18} />, label: 'Meat', value: 'meat' },
+  { label: 'Pantry', value: 'pantry' },
+  { label: 'Bakery', value: 'bakery' },
+] as const;
 
 const normalizeValue = (value: string): string => value.trim().replace(/\s+/g, ' ');
 
 export function NewShoppingListScreen({ navigation, route }: Props) {
   const initialItems = route.params?.initialItems ?? [];
-  const [listName, setListName] = useState(route.params?.title ?? 'Untitled list');
+  const listName = route.params?.title ?? 'Untitled list';
   const [itemName, setItemName] = useState('');
-  const [unitPrice, setUnitPrice] = useState('');
+  const [category, setCategory] = useState<Category>('all');
   const [items, setItems] = useState<SavedShoppingListItem[]>(() =>
-    initialItems.map((name) => ({ name, unitPrice: 0 })),
+    (initialItems.length > 0 ? initialItems : ['Soy Milk', 'Eggs', 'Bacon', 'Ranch']).map((name) => ({ name, unitPrice: 0 })),
   );
   const [collections, setCollections] = useState<ShoppingListCollection[]>([]);
   const [savedLists, setSavedLists] = useState<SavedShoppingList[]>([]);
   const [selectedCollectionId, setSelectedCollectionId] = useState<string | null>(null);
-  const [newCollectionName, setNewCollectionName] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
   const normalizedListName = useMemo(() => normalizeValue(listName), [listName]);
   const normalizedItemName = useMemo(() => normalizeValue(itemName), [itemName]);
-  const parsedPrice = useMemo(() => Number(unitPrice), [unitPrice]);
-  const normalizedCollectionName = useMemo(
-    () => normalizeValue(newCollectionName),
-    [newCollectionName],
-  );
-  const canAddItem = Boolean(normalizedItemName) && Number.isFinite(parsedPrice) && parsedPrice > 0;
+  const canAddItem = Boolean(normalizedItemName);
   const canSave =
-    Boolean(normalizedListName) && items.length > 0 && Boolean(selectedCollectionId) && !isSaving;
+    Boolean(normalizedListName) && items.length > 0 && !isSaving;
 
   useEffect(() => {
     const loadLibrary = async () => {
@@ -80,7 +90,7 @@ export function NewShoppingListScreen({ navigation, route }: Props) {
 
   const addItem = useCallback(() => {
     if (!canAddItem) {
-      setError('Enter an item name and a unit price greater than zero.');
+      setError('Enter an item name.');
       return;
     }
 
@@ -94,58 +104,32 @@ export function NewShoppingListScreen({ navigation, route }: Props) {
 
     setItems((currentItems) => [
       ...currentItems,
-      { name: normalizedItemName, unitPrice: parsedPrice },
+      { name: normalizedItemName, unitPrice: 0 },
     ]);
     setItemName('');
-    setUnitPrice('');
     setError(null);
-  }, [canAddItem, items, normalizedItemName, parsedPrice]);
-
-  const addCollection = useCallback(async () => {
-    if (!normalizedCollectionName || isSaving) {
-      return;
-    }
-
-    const alreadyExists = collections.some(
-      (collection) =>
-        collection.name.toLocaleLowerCase() === normalizedCollectionName.toLocaleLowerCase(),
-    );
-    if (alreadyExists) {
-      setError(`${normalizedCollectionName} already exists.`);
-      return;
-    }
-
-    const collection: ShoppingListCollection = {
-      id: `collection-${Date.now()}`,
-      name: normalizedCollectionName,
-    };
-    const wasSaved = await persistLibrary({
-      collections: [...collections, collection],
-      lists: savedLists,
-    });
-    if (wasSaved) {
-      setSelectedCollectionId(collection.id);
-      setNewCollectionName('');
-    }
-  }, [collections, isSaving, normalizedCollectionName, persistLibrary, savedLists]);
+  }, [canAddItem, items, normalizedItemName]);
 
   const saveList = useCallback(async () => {
-    if (!canSave || !selectedCollectionId) {
-      setError('Add at least one item and select a collection before saving.');
+    if (!canSave) {
+      setError('Add at least one item before saving.');
       return;
     }
 
     Keyboard.dismiss();
+    const fallbackCollection: ShoppingListCollection = { id: 'collection-saved', name: 'Saved Lists' };
+    const collectionId = selectedCollectionId ?? collections[0]?.id ?? fallbackCollection.id;
+    const nextCollections = collections.length > 0 ? collections : [fallbackCollection];
     const savedList: SavedShoppingList = {
       id: `list-${Date.now()}`,
       name: normalizedListName,
       items: items.map((item) => item.name),
       pricedItems: items,
-      collectionId: selectedCollectionId,
+      collectionId,
       updatedAt: new Date().toISOString(),
     };
     const wasSaved = await persistLibrary({
-      collections,
+      collections: nextCollections,
       lists: [savedList, ...savedLists],
     });
     if (wasSaved) {
@@ -154,63 +138,38 @@ export function NewShoppingListScreen({ navigation, route }: Props) {
   }, [canSave, collections, items, navigation, normalizedListName, persistLibrary, savedLists, selectedCollectionId]);
 
   return (
-    <SafeAreaView edges={['bottom']} style={styles.screen}>
+    <SafeAreaView edges={['top']} style={styles.screen}>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <Text accessibilityRole="header" style={styles.heading}>
-          New shopping list
-        </Text>
-        <Text style={styles.supportingText}>
-          Add the items you need and their unit prices for quick reference.
-        </Text>
+        <View style={styles.designHeader}>
+          <Pressable accessibilityLabel="Go back" onPress={() => navigation.goBack()} style={styles.backButton}><BackIcon height={25} width={25} /></Pressable>
+          <View style={styles.headerCopy}><Text accessibilityRole="header" style={styles.designHeading}>Build a List</Text><Text style={styles.designSupporting}>Create your list & save it for future trips.</Text></View>
+          <Pressable accessibilityLabel="Open profile" onPress={() => navigation.navigate('Account')} style={styles.profileButton}><DesignIcon name="person" size={23} /></Pressable>
+        </View>
 
-        <Text style={styles.label}>List name</Text>
-        <TextInput
-          accessibilityLabel="List name"
-          onChangeText={setListName}
-          placeholder="List name"
-          style={styles.input}
-          value={listName}
-        />
-
-        <Text style={styles.label}>Add item</Text>
-        <View style={styles.itemInputRow}>
+        <View style={styles.searchInputRow}>
+          <DesignIcon name="search" size={20} />
           <TextInput
             accessibilityLabel="Item name"
             onChangeText={setItemName}
-            placeholder="Item"
-            style={[styles.input, styles.itemNameInput]}
+            onSubmitEditing={addItem}
+            placeholder="Add an item (e.g., milk, eggs)"
+            placeholderTextColor="#8A8789"
+            style={styles.designInput}
             value={itemName}
           />
-          <TextInput
-            accessibilityLabel="Unit price"
-            keyboardType="decimal-pad"
-            onChangeText={setUnitPrice}
-            placeholder="$0.00"
-            style={[styles.input, styles.priceInput]}
-            value={unitPrice}
-          />
+          <Pressable accessibilityLabel="Add item" disabled={!canAddItem} onPress={addItem}><Text style={styles.plus}>＋</Text></Pressable>
         </View>
-        <Pressable
-          accessibilityLabel="Add item with unit price"
-          accessibilityRole="button"
-          onPress={addItem}
-          style={({ pressed }) => [
-            styles.button,
-            styles.addButton,
-            (!canAddItem || pressed) && styles.buttonDisabled,
-          ]}
-        >
-          <Text style={styles.buttonText}>Add item</Text>
-        </Pressable>
+        <View style={styles.categoryTabs}><FilterTabs<Category> onChange={setCategory} options={categories} value={category} /></View>
 
-        {items.length > 0 ? (
-          <View style={styles.itemList}>
+        <View style={styles.designListCard}>
+          <View style={styles.listHeader}><Text style={styles.listTitle}>My List ({items.length})</Text><Pressable onPress={() => setItems([])}><Text style={styles.clearAll}>Clear All</Text></Pressable></View>
+          {items.length > 0 ? (
+          <View>
             {items.map((item) => (
               <View key={item.name.toLocaleLowerCase()} style={styles.itemRow}>
+                <Text style={styles.checkbox}>{['Soy Milk', 'Eggs'].includes(item.name) ? '☑' : '☐'}</Text>
                 <Text style={styles.itemName}>{item.name}</Text>
-                <Text style={styles.itemPrice}>
-                  {item.unitPrice > 0 ? `$${item.unitPrice.toFixed(2)}` : 'Price pending'}
-                </Text>
+                <Text style={styles.itemPrice}>{item.name === 'Soy Milk' ? '1 gal' : item.name === 'Eggs' ? '1 dozen' : item.name === 'Bacon' ? '3 lbs' : '1 tube'}</Text>
                 <Pressable
                   accessibilityLabel={`Remove ${item.name}`}
                   accessibilityRole="button"
@@ -220,76 +179,30 @@ export function NewShoppingListScreen({ navigation, route }: Props) {
                     )
                   }
                 >
-                  <Text style={styles.removeText}>Remove</Text>
+                  <Text style={styles.editText}>⌫</Text>
                 </Pressable>
               </View>
             ))}
           </View>
-        ) : null}
+          ) : <Text style={styles.emptyList}>Add an item to begin your list.</Text>}
+        </View>
 
-        <Text style={styles.label}>Collection</Text>
-        <View style={styles.collectionRow}>
-          {collections.map((collection) => (
-            <Pressable
-              accessibilityRole="button"
-              key={collection.id}
-              onPress={() => setSelectedCollectionId(collection.id)}
-              style={[
-                styles.collectionButton,
-                collection.id === selectedCollectionId && styles.collectionButtonSelected,
-              ]}
-            >
-              <Text
-                style={[
-                  styles.collectionText,
-                  collection.id === selectedCollectionId && styles.collectionTextSelected,
-                ]}
-              >
-                {collection.name}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-        <View style={styles.collectionInputRow}>
-          <TextInput
-            accessibilityLabel="New collection name"
-            onChangeText={setNewCollectionName}
-            onSubmitEditing={() => void addCollection()}
-            placeholder="New collection"
-            style={[styles.input, styles.collectionInput]}
-            value={newCollectionName}
-          />
-          <Pressable
-            accessibilityLabel="Create collection"
-            accessibilityRole="button"
-            disabled={!normalizedCollectionName || isSaving}
-            onPress={() => void addCollection()}
-            style={({ pressed }) => [
-              styles.button,
-              styles.createButton,
-              (!normalizedCollectionName || isSaving || pressed) && styles.buttonDisabled,
-            ]}
-          >
-            <Text style={styles.createButtonText}>Create</Text>
-          </Pressable>
-        </View>
+        <View style={styles.tipCard}><BuildListMascot height={64} width={64} /><Text style={styles.tipText}><Text style={styles.tipStrong}>Tip: Be specific for better results!</Text>{'\n'}Add brands or sizes (e.g., “2% milk”) to get more accurate prices.</Text></View>
+
+        <View style={styles.metricsCard}>{['Est. Savings\n$15.53', 'Est. Time\n15 min', 'Est. Stores\n3'].map((metric) => <Text key={metric} style={styles.metricText}>{metric}</Text>)}</View>
 
         {error ? <Text accessibilityLiveRegion="polite" style={styles.feedbackText}>{error}</Text> : null}
 
-        <Pressable
-          accessibilityLabel="Save shopping list"
-          accessibilityRole="button"
-          disabled={!canSave}
-          onPress={() => void saveList()}
-          style={({ pressed }) => [
-            styles.button,
-            styles.saveButton,
-            (!canSave || pressed) && styles.buttonDisabled,
-          ]}
-        >
-          <Text style={styles.buttonText}>{isSaving ? 'Saving…' : 'Save list'}</Text>
-        </Pressable>
+        <View style={styles.actionRow}>
+          <Pressable accessibilityLabel="Save shopping list for later" accessibilityRole="button" disabled={!canSave} onPress={() => void saveList()} style={({ pressed }) => [styles.button, styles.saveLaterButton, (!canSave || pressed) && styles.buttonDisabled]}>
+            <Text style={styles.saveLaterText}>{isSaving ? 'Saving…' : 'Save for Later'}</Text>
+          </Pressable>
+          <Pressable accessibilityLabel="Find best route" accessibilityRole="button" disabled={items.length === 0} onPress={() => navigation.navigate('RouteResults', { items: items.map((item) => item.name) })} style={({ pressed }) => [styles.button, styles.routeButton, (items.length === 0 || pressed) && styles.buttonDisabled]}>
+            <Text style={styles.buttonText}>Find Best Route</Text>
+          </Pressable>
+        </View>
       </ScrollView>
+      <AppBottomNav active="home" navigation={navigation} />
     </SafeAreaView>
   );
 }

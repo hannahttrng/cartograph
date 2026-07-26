@@ -199,7 +199,7 @@ export function ShoppingListScreen({ navigation }: Props) {
   }, [isSubmitting, items, navigation]);
 
   return (
-    <SafeAreaView edges={['bottom']} style={styles.screen}>
+    <SafeAreaView edges={['top', 'bottom']} style={styles.screen}>
       <View style={styles.content}>
         <Text accessibilityRole="header" style={styles.heading}>
           What do you need?
