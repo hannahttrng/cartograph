@@ -9,8 +9,9 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import BackIcon from '../../assets/svg icons/keyboard_arrow_up.svg';
 import { getRoutes, toApiError } from '../api';
-import { FilterTabs, StatusBanner } from '../components/common';
+import { AppBottomNav, DesignIcon, FilterTabs, StatusBanner } from '../components/common';
 import type { RootStackParamList } from '../navigation/types';
 import type { GetRoutesRequest } from '../types/api';
 import type { Product, Route } from '../types/models';
@@ -85,7 +86,24 @@ export function RouteResultsScreen({ navigation, route }: Props) {
   const selectedRoute = displayedRoutes[selectedRouteIndex];
 
   return (
-    <SafeAreaView edges={['top', 'bottom']} style={styles.screen}>
+    <SafeAreaView edges={['top']} style={styles.screen}>
+      <View style={styles.screenHeader}>
+        <Pressable
+          accessibilityLabel="Go back"
+          hitSlop={12}
+          onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('Home')}
+          style={styles.backButton}
+        >
+          <BackIcon height={24} width={24} />
+        </Pressable>
+        <View style={styles.headerCopy}>
+          <Text accessibilityRole="header" style={styles.title}>Route Results</Text>
+          <Text numberOfLines={1} style={styles.headerSubtitle}>Compare the best trips for your list.</Text>
+        </View>
+        <Pressable accessibilityLabel="Open profile" onPress={() => navigation.navigate('Account')} style={styles.profileButton}>
+          <DesignIcon name="person" size={23} />
+        </Pressable>
+      </View>
       {isLoading ? (
         <View style={styles.centeredState}>
           <ActivityIndicator size="large" color="#243B53" />
@@ -175,9 +193,6 @@ export function RouteResultsScreen({ navigation, route }: Props) {
           }
           ListHeaderComponent={
             <View style={styles.header}>
-              <Text accessibilityRole="header" style={styles.title}>
-                Your Best Routes
-              </Text>
               <Text style={styles.subtitle}>
                 Ranked for {items.length} {items.length === 1 ? 'item' : 'items'} on your list.
               </Text>
@@ -238,6 +253,7 @@ export function RouteResultsScreen({ navigation, route }: Props) {
           }}
         />
       )}
+      <AppBottomNav active="lists" navigation={navigation} />
     </SafeAreaView>
   );
 }

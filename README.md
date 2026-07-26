@@ -41,6 +41,28 @@ Start the Expo development server:
 npm start
 ```
 
+Copy the tracked environment template before the first run:
+
+```sh
+cp .env.example .env
+```
+
+For live Carter chat and recipe import, keep `EXPO_PUBLIC_USE_MOCK_DATA=false`,
+set the backend-only Carter values described below, start FastAPI, and then
+restart Expo with a cleared cache:
+
+```sh
+npm start -- --clear
+```
+
+Use `EXPO_PUBLIC_USE_MOCK_DATA=true` only for the offline UI demo. Expo reads
+its public variables when Metro starts, so changing `.env` requires restarting
+Metro. The iOS Simulator can use `EXPO_PUBLIC_API_BASE_URL=http://localhost:8000`.
+For a physical phone, replace `localhost` with the development Mac's LAN IP.
+Authentication, profile, nearby-store, deal, and Home activity data are still
+frontend demo data in both modes; their backend integrations are tracked in
+`ERIC_AGENT.md`.
+
 With Xcode and an iOS Simulator installed, build and open the iOS app directly:
 
 ```sh
@@ -134,9 +156,16 @@ documentation or its working curl example. It must include any required path
 and query parameters. Never place the Azure key in an Expo environment variable
 or commit `.env`.
 
+`.env.example` is the shareable configuration contract. Copy it to `.env`, then
+obtain the real `CARTER_API_URL` and `AZURE_OPENAI_API_KEY` from the team's
+approved secret-sharing channel. Do not send the key through Git, pull requests,
+issues, chat transcripts, screenshots, or an `EXPO_PUBLIC_` variable. Eric needs
+the exact gateway URL, API mode, and key; the placeholder values in
+`.env.example` are intentionally nonfunctional.
+
 ```dotenv
 CARTER_API_URL="https://gateway.example.com/complete/inference/path"
-AZURE_OPENAI_API_KEY="your-key"
+AZURE_OPENAI_API_KEY=
 # Use responses for OpenAI Responses-shaped payloads, or chat-completions for
 # OpenAI Chat Completions-shaped payloads.
 CARTER_API_MODE="responses"
@@ -150,6 +179,7 @@ the gateway's actual inference endpoint.
 On macOS or Linux:
 
 ```sh
+cp .env.example .env
 set -a
 source .env
 set +a
@@ -159,6 +189,15 @@ python -m uvicorn backend.index:app --reload
 Restart Uvicorn after creating or changing `.env`. A successful configuration
 allows `POST /api/v1/assistant/recipe-import`; a `503 Carter is not configured
 yet.` response means the server was started without one or both variables.
+
+Verify the live Carter path before starting Expo:
+
+```sh
+curl --fail --show-error \
+	-H 'Content-Type: application/json' \
+	-d '{"message":"I want tacos tonight","messages":[]}' \
+	http://127.0.0.1:8000/api/v1/assistant/chat
+```
 
 The recipe-import endpoint accepts pasted recipe text or a public recipe URL:
 

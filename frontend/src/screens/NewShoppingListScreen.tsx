@@ -4,11 +4,10 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import BuildListMascot from '../../assets/svg icons/Group 15.svg';
-import BackIcon from '../../assets/svg icons/keyboard_arrow_up.svg';
 import DairyIcon from '../../assets/svg icons/dairy 1.svg';
 import MeatIcon from '../../assets/svg icons/meat 1.svg';
 import ProduceIcon from '../../assets/svg icons/produce 1.svg';
-import { AppBottomNav, DesignIcon, FilterTabs } from '../components/common';
+import { AppBottomNav, BackButton, DesignIcon, FilterTabs } from '../components/common';
 import type { RootStackParamList } from '../navigation/types';
 import type {
   SavedShoppingList,
@@ -35,6 +34,13 @@ const categories = [
 ] as const;
 
 const normalizeValue = (value: string): string => value.trim().replace(/\s+/g, ' ');
+const itemDefaults: Record<string, { quantity: number; unit: string }> = {
+  bacon: { quantity: 3, unit: 'lb' },
+  eggs: { quantity: 1, unit: 'dozen' },
+  ranch: { quantity: 1, unit: 'bottle' },
+  'soy milk': { quantity: 1, unit: 'gal' },
+};
+const units = ['each', 'lb', 'oz', 'gal', 'dozen', 'bottle'];
 
 export function NewShoppingListScreen({ navigation, route }: Props) {
   const initialItems = route.params?.initialItems ?? [];
@@ -42,7 +48,7 @@ export function NewShoppingListScreen({ navigation, route }: Props) {
   const [itemName, setItemName] = useState('');
   const [category, setCategory] = useState<Category>('all');
   const [items, setItems] = useState<SavedShoppingListItem[]>(() =>
-    (initialItems.length > 0 ? initialItems : ['Soy Milk', 'Eggs', 'Bacon', 'Ranch']).map((name) => ({ name, unitPrice: 0 })),
+    (initialItems.length > 0 ? initialItems : ['Soy Milk', 'Eggs', 'Bacon', 'Ranch']).map((name) => ({ checked: false, name, quantity: itemDefaults[name.toLocaleLowerCase()]?.quantity ?? 1, unit: itemDefaults[name.toLocaleLowerCase()]?.unit ?? 'each', unitPrice: 0 })),
   );
   const [collections, setCollections] = useState<ShoppingListCollection[]>([]);
   const [savedLists, setSavedLists] = useState<SavedShoppingList[]>([]);
@@ -104,11 +110,20 @@ export function NewShoppingListScreen({ navigation, route }: Props) {
 
     setItems((currentItems) => [
       ...currentItems,
-      { name: normalizedItemName, unitPrice: 0 },
+      { checked: false, name: normalizedItemName, quantity: 1, unit: 'each', unitPrice: 0 },
     ]);
     setItemName('');
     setError(null);
   }, [canAddItem, items, normalizedItemName]);
+
+  const updateItem = useCallback((name: string, update: Partial<SavedShoppingListItem>) => {
+    setItems((currentItems) => currentItems.map((item) => item.name === name ? { ...item, ...update } : item));
+  }, []);
+
+  const cycleUnit = useCallback((item: SavedShoppingListItem) => {
+    const currentIndex = units.indexOf(item.unit ?? 'each');
+    updateItem(item.name, { unit: units[(currentIndex + 1) % units.length] });
+  }, [updateItem]);
 
   const saveList = useCallback(async () => {
     if (!canSave) {
@@ -141,7 +156,7 @@ export function NewShoppingListScreen({ navigation, route }: Props) {
     <SafeAreaView edges={['top']} style={styles.screen}>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <View style={styles.designHeader}>
-          <Pressable accessibilityLabel="Go back" onPress={() => navigation.goBack()} style={styles.backButton}><BackIcon height={25} width={25} /></Pressable>
+          <BackButton onPress={() => navigation.goBack()} />
           <View style={styles.headerCopy}><Text accessibilityRole="header" style={styles.designHeading}>Build a List</Text><Text style={styles.designSupporting}>Create your list & save it for future trips.</Text></View>
           <Pressable accessibilityLabel="Open profile" onPress={() => navigation.navigate('Account')} style={styles.profileButton}><DesignIcon name="person" size={23} /></Pressable>
         </View>
@@ -167,9 +182,14 @@ export function NewShoppingListScreen({ navigation, route }: Props) {
           <View>
             {items.map((item) => (
               <View key={item.name.toLocaleLowerCase()} style={styles.itemRow}>
-                <Text style={styles.checkbox}>{['Soy Milk', 'Eggs'].includes(item.name) ? '☑' : '☐'}</Text>
+                <Pressable accessibilityLabel={`${item.checked ? 'Uncheck' : 'Check'} ${item.name}`} accessibilityRole="checkbox" accessibilityState={{ checked: Boolean(item.checked) }} onPress={() => updateItem(item.name, { checked: !item.checked })} style={[styles.checkbox, item.checked && styles.checkboxChecked]}>{item.checked ? <Text style={styles.checkmark}>✓</Text> : null}</Pressable>
                 <Text style={styles.itemName}>{item.name}</Text>
-                <Text style={styles.itemPrice}>{item.name === 'Soy Milk' ? '1 gal' : item.name === 'Eggs' ? '1 dozen' : item.name === 'Bacon' ? '3 lbs' : '1 tube'}</Text>
+                <View style={styles.quantityControl}>
+                  <Pressable accessibilityLabel={`Decrease ${item.name} quantity`} hitSlop={6} onPress={() => updateItem(item.name, { quantity: Math.max(1, (item.quantity ?? 1) - 1) })}><Text style={styles.quantityButton}>−</Text></Pressable>
+                  <Text style={styles.quantity}>{item.quantity ?? 1}</Text>
+                  <Pressable accessibilityLabel={`Increase ${item.name} quantity`} hitSlop={6} onPress={() => updateItem(item.name, { quantity: (item.quantity ?? 1) + 1 })}><Text style={styles.quantityButton}>+</Text></Pressable>
+                </View>
+                <Pressable accessibilityLabel={`Change ${item.name} unit`} onPress={() => cycleUnit(item)} style={styles.unitButton}><Text numberOfLines={1} style={styles.itemPrice}>{item.unit ?? 'each'}</Text></Pressable>
                 <Pressable
                   accessibilityLabel={`Remove ${item.name}`}
                   accessibilityRole="button"

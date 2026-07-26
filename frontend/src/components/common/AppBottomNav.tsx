@@ -14,20 +14,22 @@ type ActiveTab = 'home' | 'lists' | 'stores';
 interface AppBottomNavProps {
   active: ActiveTab;
   navigation: NavigationProp<RootStackParamList>;
+  showCarter?: boolean;
 }
 
 const tabs = [
-  { Icon: HomeNavIcon, key: 'home', label: 'Home', route: 'Home' },
-  { Icon: ListsNavIcon, key: 'lists', label: 'Lists', route: 'SavedLists' },
-  { Icon: StoresNavIcon, key: 'stores', label: 'Stores', route: 'NearbyStores' },
+  { Icon: HomeNavIcon, key: 'home', label: 'Home', route: 'Home', width: 39 },
+  { Icon: ListsNavIcon, key: 'lists', label: 'Lists', route: 'SavedLists', width: 40 },
+  { Icon: StoresNavIcon, key: 'stores', label: 'Stores', route: 'NearbyStores', width: 40 },
 ] as const satisfies ReadonlyArray<{
   Icon: typeof HomeNavIcon;
   key: ActiveTab;
   label: string;
   route: 'Home' | 'SavedLists' | 'NearbyStores';
+  width: number;
 }>;
 
-export function AppBottomNav({ active, navigation }: AppBottomNavProps) {
+export function AppBottomNav({ active, navigation, showCarter = true }: AppBottomNavProps) {
   const { bottom } = useSafeAreaInsets();
 
   return (
@@ -43,20 +45,22 @@ export function AppBottomNav({ active, navigation }: AppBottomNavProps) {
             onPress={() => navigation.navigate(tab.route)}
             style={[styles.tab, isActive && styles.tabActive]}
           >
-            <tab.Icon height={tab.key === 'stores' ? 26 : tab.key === 'lists' ? 22 : 24} width={tab.key === 'stores' ? 20 : 25} />
+            <tab.Icon height={37} width={tab.width} />
           </Pressable>
         );
       })}
-      <Pressable accessibilityRole="button" onPress={() => navigation.navigate('AiAssistant')} style={styles.carter}>
-        <CarterControl height={58} width={127} />
-      </Pressable>
+      {showCarter ? (
+        <Pressable accessibilityRole="button" onPress={() => navigation.navigate('AiAssistant')} style={styles.carter}>
+          <CarterControl height={48} width={105} />
+        </Pressable>
+      ) : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  bar: { alignItems: 'center', backgroundColor: colors.surface, flexDirection: 'row', gap: 9, height: 64, justifyContent: 'center', paddingHorizontal: 16 },
-  tab: { alignItems: 'center', borderRadius: 10, height: 37, justifyContent: 'center', width: 40 },
+  bar: { alignItems: 'center', backgroundColor: colors.surface, borderTopColor: colors.border, borderTopWidth: StyleSheet.hairlineWidth, flexDirection: 'row', gap: 12, height: 64, justifyContent: 'center', paddingHorizontal: 16 },
+  tab: { alignItems: 'center', borderRadius: 10, height: 41, justifyContent: 'center', width: 42 },
   tabActive: { backgroundColor: colors.primary },
-  carter: { alignItems: 'center', height: 58, justifyContent: 'center', marginLeft: 8, width: 127 },
+  carter: { alignItems: 'center', height: 48, justifyContent: 'center', width: 105 },
 });

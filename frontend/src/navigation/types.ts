@@ -3,6 +3,7 @@ import type { Route } from '../types/models';
 export type RootStackParamList = {
   Home: undefined;
   Login: undefined;
+  Register: undefined;
   ImportRecipes: undefined;
   NearbyStores: undefined;
   SavedLists: undefined;
@@ -18,7 +19,7 @@ export type RootStackParamList = {
   NearbyDeals: undefined;
   Map: {
     route: Route;
-    routeId: string;
+    routeId?: string;
   };
   RouteResults: {
     items: string[];
