@@ -192,6 +192,8 @@ test('renders store-chain headings, one-line metrics, map actions, and persisted
   });
 
   await fireEvent.press(route);
+  expect(screen.getByText('Backend cost score 23.25 · lower is better')).toBeOnTheScreen();
+  expect(screen.getByText('Products $12.00')).toBeOnTheScreen();
   expect(screen.getByText('Store order')).toBeOnTheScreen();
   expect(screen.getByText('Market')).toBeOnTheScreen();
   expect(screen.getByText('Whole Milk')).toBeOnTheScreen();
@@ -249,11 +251,11 @@ test('sorts by backend rank, purchase price, and distance', async () => {
 
   await fireEvent.press(screen.getByText('Cheaper'));
   expect(screen.getAllByLabelText(/rank \d of 3/)[0]?.props.accessibilityLabel)
-    .toContain('Budget Mart, rank 1');
+    .toContain('Budget Mart, rank 2');
 
   await fireEvent.press(screen.getByText('Closer'));
   expect(screen.getAllByLabelText(/rank \d of 3/)[0]?.props.accessibilityLabel)
-    .toContain('Quick Shop, rank 1');
+    .toContain('Quick Shop, rank 3');
 
   await fireEvent.press(screen.getByText('Best Overall'));
   expect(screen.getAllByLabelText(/rank \d of 3/)[0]?.props.accessibilityLabel)
@@ -292,6 +294,7 @@ test('starts a fresh calculation after a failed job', async () => {
   await fireEvent.press(screen.getByText('Try again'));
   await waitFor(() => expect(mockedApi.startRouteCalculation).toHaveBeenCalledTimes(1));
   expect(await screen.findByLabelText(/Market → Fresh Fields, rank 1 of 3/)).toBeOnTheScreen();
+  expect(screen.getByText('#1 Best overall · Cost score 23')).toBeOnTheScreen();
 });
 
 test('shows an actionable empty state when no lists are active', async () => {

@@ -24,9 +24,11 @@ jest.mock('../../../frontend/src/api', () => {
     deleteShoppingList: jest.fn(),
     getShoppingList: jest.fn(),
     listCatalogTags: jest.fn(),
+    listShoppingLists: jest.fn(),
     listTagModifiers: jest.fn(),
     replaceShoppingList: jest.fn(),
     startRouteCalculation: jest.fn(),
+    updateShoppingListActive: jest.fn(),
     updateShoppingListName: jest.fn(),
   };
 });
@@ -98,6 +100,7 @@ const addCatalogItem = async (tag: string) => {
 beforeEach(() => {
   jest.resetAllMocks();
   mockedApi.listCatalogTags.mockResolvedValue(catalog);
+  mockedApi.listShoppingLists.mockResolvedValue([createdList]);
   mockedApi.listTagModifiers.mockImplementation(async (tag) => ({
     milk: ['brand: horizon', 'in season', 'on sale', 'organic'],
     'ground beef': ['grass fed', 'on sale', 'organic'],
@@ -121,10 +124,23 @@ beforeEach(() => {
     detail: null,
   });
   mockedApi.updateShoppingListName.mockResolvedValue(serverList);
+  mockedApi.updateShoppingListActive.mockImplementation(async (id, request) => ({
+    ...serverList,
+    id,
+    active: request.active,
+  }));
   mockedApi.deleteShoppingList.mockResolvedValue(undefined);
 });
 
 describe('<NewShoppingListScreen />', () => {
+  test('prefills the catalog search without adding an unresolved item', async () => {
+    await renderScreen({ initialSearch: 'ground', title: 'New List' });
+
+    expect(await screen.findByDisplayValue('ground')).toBeOnTheScreen();
+    expect(screen.getByText('Ground Beef')).toBeOnTheScreen();
+    expect(screen.queryByText('Review imported items')).not.toBeOnTheScreen();
+  });
+
   test('loads the catalog, resolves exact prefills, and exposes unmatched imports', async () => {
     await renderScreen({ initialItems: ['Milk', 'Tomatoes'], initialTags: ['bread', 'ground beef'], title: 'Recipe' });
 
@@ -166,25 +182,26 @@ describe('<NewShoppingListScreen />', () => {
     expect(navigation.navigate).toHaveBeenCalledWith('SavedLists');
   });
 
-  test('saves an active list before opening global Routes without a duplicate run', async () => {
+  test('saves a new list and starts its final isolated route generation', async () => {
     await renderScreen();
     await screen.findByText('Add an item to begin your list.');
     await fireEvent.changeText(screen.getByLabelText('Shopping list name'), 'Weekly staples');
     await addCatalogItem('milk');
-    await fireEvent.press(screen.getByLabelText('Find best route'));
+    await fireEvent.press(screen.getByLabelText('Route this list'));
 
     await waitFor(() => {
       expect(navigation.navigate).toHaveBeenCalledWith('Routes');
     });
-    expect(mockedApi.startRouteCalculation).not.toHaveBeenCalled();
+    expect(mockedApi.startRouteCalculation).toHaveBeenCalledTimes(1);
   });
 
-  test('activates an inactive saved list before opening Routes', async () => {
+  test('activates an inactive saved list before starting its isolated route generation', async () => {
     mockedApi.replaceShoppingList.mockResolvedValueOnce({ ...serverList, active: true });
+    mockedApi.listShoppingLists.mockResolvedValueOnce([{ ...serverList, active: true }]);
     await renderScreen({ listId: 7 });
     await screen.findByDisplayValue('Weekend');
 
-    await fireEvent.press(screen.getByLabelText('Find best route'));
+    await fireEvent.press(screen.getByLabelText('Route this list'));
 
     await waitFor(() => {
       expect(mockedApi.replaceShoppingList).toHaveBeenCalledWith(7, {
@@ -193,19 +210,39 @@ describe('<NewShoppingListScreen />', () => {
         name: 'Weekend',
       });
     });
-    expect(mockedApi.startRouteCalculation).not.toHaveBeenCalled();
+    expect(mockedApi.startRouteCalculation).toHaveBeenCalledTimes(1);
     expect(navigation.navigate).toHaveBeenCalledWith('Routes');
   });
 
   test('explicitly reruns routes for an unchanged active list', async () => {
     mockedApi.getShoppingList.mockResolvedValueOnce({ ...serverList, active: true });
+    mockedApi.listShoppingLists.mockResolvedValueOnce([{ ...serverList, active: true }]);
     await renderScreen({ listId: 7 });
     await screen.findByDisplayValue('Weekend');
 
-    await fireEvent.press(screen.getByLabelText('Find best route'));
+    await fireEvent.press(screen.getByLabelText('Route this list'));
 
     await waitFor(() => expect(mockedApi.startRouteCalculation).toHaveBeenCalledTimes(1));
     expect(mockedApi.replaceShoppingList).not.toHaveBeenCalled();
+    expect(navigation.navigate).toHaveBeenCalledWith('Routes');
+  });
+
+  test('saves other included lists for later before routing only this list', async () => {
+    const selectedList = { ...serverList, active: true };
+    const otherList = { ...createdList, id: 11, active: true };
+    mockedApi.getShoppingList.mockResolvedValueOnce(selectedList);
+    mockedApi.listShoppingLists.mockResolvedValueOnce([selectedList, otherList]);
+
+    await renderScreen({ listId: selectedList.id });
+    await screen.findByDisplayValue('Weekend');
+    await fireEvent.press(screen.getByLabelText('Route this list'));
+
+    await waitFor(() => {
+      expect(mockedApi.updateShoppingListActive).toHaveBeenCalledWith(11, {
+        active: false,
+      });
+    });
+    expect(mockedApi.startRouteCalculation).toHaveBeenCalledTimes(1);
     expect(navigation.navigate).toHaveBeenCalledWith('Routes');
   });
 
@@ -284,8 +321,8 @@ describe('<NewShoppingListScreen />', () => {
     await renderScreen({ listId: 7 });
     await screen.findByDisplayValue('Weekend');
 
-    expect(screen.getByLabelText('Shopping list active').props.accessibilityState.checked).toBe(false);
-    await fireEvent.press(screen.getByLabelText('Shopping list active'));
+    expect(screen.getByLabelText('Include list in route planning').props.accessibilityState.selected).toBe(false);
+    await fireEvent.press(screen.getByLabelText('Include list in route planning'));
     await fireEvent.press(screen.getByLabelText('Save shopping list for later'));
 
     await waitFor(() => {
@@ -320,7 +357,7 @@ describe('<NewShoppingListScreen />', () => {
     await fireEvent.changeText(screen.getByLabelText('Shopping list name'), 'Weekly staples');
     await addCatalogItem('milk');
 
-    const routeButton = screen.getByLabelText('Find best route');
+    const routeButton = screen.getByLabelText('Route this list');
     await fireEvent.press(routeButton);
     await fireEvent.press(routeButton);
     expect(mockedApi.createShoppingList).toHaveBeenCalledTimes(1);

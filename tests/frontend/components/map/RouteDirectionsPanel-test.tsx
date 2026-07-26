@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { fireEvent, render, screen } from '@testing-library/react-native';
 
 import { RouteDirectionsPanel } from '../../../../frontend/src/components/map/RouteDirectionsPanel';
@@ -46,11 +47,30 @@ const mapData: MapRouteData = {
   ],
 };
 
+function DirectionsHarness() {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [selectedSequence, setSelectedSequence] = useState<number | null>(null);
+  return (
+    <RouteDirectionsPanel
+      isExpanded={isExpanded}
+      onExpandedChange={setIsExpanded}
+      onSelectDirection={setSelectedSequence}
+      result={result}
+      selectedSequence={selectedSequence}
+    />
+  );
+}
+
 test('renders ordered directions and exposes an accessible collapse control', async () => {
-  await render(<RouteDirectionsPanel result={result} />);
+  await render(<DirectionsHarness />);
 
   expect(screen.getByText('Route ready - 4.2 miles, 11 minutes')).toBeOnTheScreen();
+  expect(screen.queryByText('Turn right on Orange Street')).not.toBeOnTheScreen();
+  await fireEvent.press(screen.getByLabelText('Expand directions'));
   expect(screen.getByText('Turn right on Orange Street')).toBeOnTheScreen();
+  await fireEvent.press(screen.getByLabelText('Direction 1: Turn right on Orange Street'));
+  expect(screen.getByLabelText('Direction 1: Turn right on Orange Street').props.accessibilityState)
+    .toEqual({ selected: true });
   const collapseButton = screen.getByLabelText('Collapse directions');
   expect(collapseButton.props.accessibilityState).toEqual({ expanded: true });
 

@@ -3,6 +3,7 @@ import type {
   ArcGISMapDiagnosticFact,
   ArcGISMapDiagnosticStage,
   ArcGISMapDiagnosticStatus,
+  ArcGISMapCommandPayload,
   ArcGISMapHost,
   ArcGISMapMessage,
   ArcGISMapSource,
@@ -11,6 +12,7 @@ import type {
   MapRouteError,
   MapRouteErrorCode,
   MapRouteResult,
+  MapStopSelection,
 } from '../../types/maps';
 
 export interface ArcGISMapHtmlOptions {
@@ -161,6 +163,17 @@ const parseRouteResult = (value: unknown): MapRouteResult | null => {
   };
 };
 
+const parseStopSelection = (value: unknown): MapStopSelection | null => {
+  if (
+    !isRecord(value) ||
+    !isPositiveInteger(value.sequence) ||
+    !isNonemptyString(value.name)
+  ) {
+    return null;
+  }
+  return { name: value.name.trim(), sequence: value.sequence };
+};
+
 const routeErrorCodes = new Set<MapRouteErrorCode>([
   'CONFIGURATION',
   'GEOCODING',
@@ -226,6 +239,10 @@ export const parseArcGISMapMessage = (
       const result = parseRouteResult(value.result);
       return result ? { type: 'routeSolved', result } : null;
     }
+    case 'stopSelected': {
+      const stop = parseStopSelection(value.stop);
+      return stop ? { type: 'stopSelected', stop } : null;
+    }
     case 'routeError': {
       const error = parseRouteError(value.error);
       return error ? { type: 'routeError', error } : null;
@@ -246,6 +263,10 @@ export const parseArcGISMapMessage = (
       return null;
   }
 };
+
+export const createArcGISMapCommandScript = (
+  command: ArcGISMapCommandPayload,
+): string => `window.cartographHandleCommand?.(${serializeForInlineScript(command)}); true;`;
 
 export const createArcGISMapHtml = ({
   apiKey,
@@ -513,7 +534,7 @@ export const createArcGISMapHtml = ({
       const countRoutePixels = (screenshot) => screenshotPixelCount(
         screenshot,
         (red, green, blue, alpha) =>
-          red <= 80 && green >= 110 && green <= 210 && blue >= 180 && alpha >= 128,
+          red <= 80 && green >= 90 && green <= 180 && blue <= 100 && alpha >= 128,
       );
 
       try {
@@ -710,6 +731,8 @@ export const createArcGISMapHtml = ({
           }, bridgeConfig.routeSolveTimeoutMs);
 
           const [
+            Graphic,
+            GraphicsLayer,
             Point,
             webMercatorUtils,
             locator,
@@ -717,6 +740,8 @@ export const createArcGISMapHtml = ({
             RouteParameters,
             Stop,
           ] = await $arcgis.import([
+            "@arcgis/core/Graphic.js",
+            "@arcgis/core/layers/GraphicsLayer.js",
             "@arcgis/core/geometry/Point.js",
             "@arcgis/core/geometry/support/webMercatorUtils.js",
             "@arcgis/core/rest/locator.js",
@@ -821,8 +846,8 @@ export const createArcGISMapHtml = ({
                   defaultSymbols: {
                     directionLines: {
                       type: "simple-line",
-                      color: [28, 159, 232, 0.98],
-                      width: 7,
+                      color: [20, 124, 54, 0.96],
+                      width: 4,
                       cap: "round",
                       join: "round",
                     },
@@ -857,6 +882,97 @@ export const createArcGISMapHtml = ({
                   },
                 );
                 return routeLayer;
+              };
+
+              const addStopMarkers = () => {
+                const stopLayer = new GraphicsLayer({
+                  id: "cartograph-stop-order-layer",
+                  listMode: "hide",
+                  title: "Store order",
+                });
+                const markerBySequence = new Map();
+                const baseSymbolBySequence = new Map();
+                const addMarker = ({
+                  address,
+                  color,
+                  geometry,
+                  label,
+                  name,
+                  sequence,
+                  style = "circle",
+                  textColor = [255, 255, 255, 1],
+                  xoffset = 0,
+                }) => {
+                  const baseSymbol = {
+                    type: "simple-marker",
+                    color,
+                    outline: { color: [255, 255, 255, 1], width: 2.5 },
+                    size: 28,
+                    style,
+                    xoffset,
+                  };
+                  const marker = new Graphic({
+                    geometry,
+                    attributes: { address, kind: "stop", name, sequence },
+                    popupTemplate: {
+                      title: label + ": {name}",
+                      content: "{address}",
+                    },
+                    symbol: baseSymbol,
+                  });
+                  stopLayer.addMany([
+                    marker,
+                    new Graphic({
+                      geometry,
+                      symbol: {
+                        type: "text",
+                        color: textColor,
+                        font: { family: "Avenir Next", size: 11, weight: "bold" },
+                        haloColor: color,
+                        haloSize: 1,
+                        text: label,
+                        xoffset,
+                        yoffset: -1,
+                      },
+                    }),
+                  ]);
+                  markerBySequence.set(sequence, marker);
+                  baseSymbolBySequence.set(sequence, baseSymbol);
+                };
+
+                addMarker({
+                  address: routeData.origin.label,
+                  color: [14, 46, 18, 1],
+                  geometry: originPoint,
+                  label: "S",
+                  name: routeData.origin.label,
+                  sequence: 0,
+                  xoffset: -12,
+                });
+                resolvedStops.forEach((stop, index) => {
+                  const isNextStop = index === 0;
+                  addMarker({
+                    address: stop.address,
+                    color: isNextStop ? [150, 249, 163, 1] : [20, 124, 54, 1],
+                    geometry: stop.point,
+                    label: String(index + 1),
+                    name: stop.name,
+                    sequence: index + 1,
+                    textColor: isNextStop ? [14, 46, 18, 1] : [255, 255, 255, 1],
+                  });
+                });
+                addMarker({
+                  address: routeData.origin.label,
+                  color: [45, 140, 74, 1],
+                  geometry: originPoint,
+                  label: "E",
+                  name: routeData.origin.label + " return",
+                  sequence: resolvedStops.length + 1,
+                  style: "square",
+                  xoffset: 12,
+                });
+                map.add(stopLayer);
+                return { baseSymbolBySequence, markerBySequence, stopLayer };
               };
 
               const routePointForHitTest = (routeLayer) => {
@@ -901,6 +1017,34 @@ export const createArcGISMapHtml = ({
                   throw new Error("ArcGIS did not return RouteLayer geometry.");
                 }
                 const routeGeometry = routeLayer.routeInfo.geometry;
+                const routeDisplayLayer = new GraphicsLayer({
+                  id: "cartograph-route-display-layer",
+                  listMode: "hide",
+                  title: "Cartograph route display",
+                });
+                routeDisplayLayer.addMany([
+                  new Graphic({
+                    geometry: routeGeometry,
+                    symbol: {
+                      type: "simple-line",
+                      color: [255, 255, 255, 0.96],
+                      width: 9,
+                      cap: "round",
+                      join: "round",
+                    },
+                  }),
+                  new Graphic({
+                    geometry: routeGeometry,
+                    symbol: {
+                      type: "simple-line",
+                      color: [20, 124, 54, 1],
+                      width: 5,
+                      cap: "round",
+                      join: "round",
+                    },
+                  }),
+                ]);
+                map.add(routeDisplayLayer);
                 const routeLayerView = await view.whenLayerView(routeLayer);
                 postDiagnostic(
                   "route-updated",
@@ -923,7 +1067,11 @@ export const createArcGISMapHtml = ({
                 );
 
                 currentRouteStage = "route-navigated";
-                await view.goTo(routeGeometry.extent.expand(1.2));
+                view.padding = { top: 32, right: 32, bottom: 48, left: 32 };
+                await view.goTo(
+                  [routeGeometry, originPoint, ...resolvedStops.map((stop) => stop.point)],
+                  { animate: true, duration: 700, easing: "ease-in-out" },
+                );
                 await waitForRenderIdle(reactiveUtils, view, routeLayerView);
                 postDiagnostic(
                   "route-navigated",
@@ -980,9 +1128,127 @@ export const createArcGISMapHtml = ({
 
               const routeLayer = await initializeRouteLayer();
               await solveRouteLayer(routeLayer);
+              const stopGraphics = addStopMarkers();
 
               const directionLines = routeLayer.directionLines?.toArray() ?? [];
-              const rawDirections = (routeLayer.directionPoints?.toArray() ?? [])
+              const directionPoints = routeLayer.directionPoints?.toArray() ?? [];
+              const highlightLayer = new GraphicsLayer({
+                id: "cartograph-selection-layer",
+                listMode: "hide",
+                title: "Selected route feature",
+              });
+              map.add(highlightLayer);
+              let selectedStopSequence = null;
+
+              const fitRoute = async (bottomPadding = 48) => {
+                view.padding = {
+                  top: 32,
+                  right: 32,
+                  bottom: Math.max(32, Number(bottomPadding) || 48),
+                  left: 32,
+                };
+                await view.goTo(
+                  [routeLayer.routeInfo.geometry, originPoint, ...resolvedStops.map((stop) => stop.point)],
+                  { animate: true, duration: 650, easing: "ease-in-out" },
+                );
+              };
+              const selectStop = async (sequence, bottomPadding = 48) => {
+                const marker = stopGraphics.markerBySequence.get(Number(sequence));
+                if (!marker) return;
+                if (selectedStopSequence !== null) {
+                  const previous = stopGraphics.markerBySequence.get(selectedStopSequence);
+                  if (previous) {
+                    previous.symbol = stopGraphics.baseSymbolBySequence.get(selectedStopSequence);
+                  }
+                }
+                const baseSymbol = stopGraphics.baseSymbolBySequence.get(Number(sequence));
+                marker.symbol = {
+                  ...baseSymbol,
+                  outline: { color: [231, 169, 40, 1], width: 4 },
+                  size: 34,
+                };
+                selectedStopSequence = Number(sequence);
+                view.padding = {
+                  top: 32,
+                  right: 32,
+                  bottom: Math.max(32, Number(bottomPadding) || 48),
+                  left: 32,
+                };
+                await view.goTo(
+                  { target: marker.geometry, zoom: Math.max(view.zoom, 15) },
+                  { animate: true, duration: 500, easing: "ease-in-out" },
+                );
+              };
+              const selectDirection = async (sequence, bottomPadding = 48) => {
+                const directionLine = directionLines[Number(sequence) - 1];
+                const directionPoint = directionPoints[Number(sequence) - 1];
+                const geometry = directionLine?.geometry ?? directionPoint?.geometry;
+                if (!geometry) return;
+                highlightLayer.removeAll();
+                if (directionLine?.geometry) {
+                  highlightLayer.addMany([
+                    new Graphic({
+                      geometry: directionLine.geometry,
+                      symbol: { type: "simple-line", color: [255, 255, 255, 1], width: 11, cap: "round", join: "round" },
+                    }),
+                    new Graphic({
+                      geometry: directionLine.geometry,
+                      symbol: { type: "simple-line", color: [150, 249, 163, 1], width: 7, cap: "round", join: "round" },
+                    }),
+                  ]);
+                }
+                view.padding = {
+                  top: 32,
+                  right: 32,
+                  bottom: Math.max(32, Number(bottomPadding) || 48),
+                  left: 32,
+                };
+                await view.goTo(
+                  directionLine?.geometry?.extent?.expand(1.8) ?? {
+                    target: geometry,
+                    zoom: Math.max(view.zoom, 16),
+                  },
+                  { animate: true, duration: 500, easing: "ease-in-out" },
+                );
+              };
+              view.on("click", async (event) => {
+                const hit = await view.hitTest(event, { include: stopGraphics.stopLayer });
+                const result = hit.results?.find(
+                  (item) => item.graphic?.attributes?.kind === "stop",
+                );
+                const attributes = result?.graphic?.attributes;
+                if (!attributes) return;
+                await selectStop(attributes.sequence, 48);
+                view.openPopup({
+                  features: [result.graphic],
+                  location: result.graphic.geometry,
+                });
+                if (attributes.sequence > 0 && attributes.sequence <= resolvedStops.length) {
+                  notify({
+                    type: "stopSelected",
+                    stop: {
+                      name: String(attributes.name),
+                      sequence: Number(attributes.sequence),
+                    },
+                  });
+                }
+              });
+              window.cartographHandleCommand = async (command) => {
+                if (!command || typeof command.type !== "string") return;
+                if (command.type === "recenterRoute") {
+                  highlightLayer.removeAll();
+                  await fitRoute(command.bottomPadding);
+                } else if (command.type === "selectDirection") {
+                  await selectDirection(command.sequence, command.bottomPadding);
+                } else if (command.type === "selectStop") {
+                  await selectStop(command.sequence, command.bottomPadding);
+                } else if (command.type === "setInteraction") {
+                  mapContainer.style.pointerEvents = command.enabled ? "auto" : "none";
+                  await fitRoute(command.bottomPadding);
+                }
+              };
+
+              const rawDirections = directionPoints
                 .sort((first, second) =>
                   toNonnegativeNumber(first.sequence) - toNonnegativeNumber(second.sequence)
                 )

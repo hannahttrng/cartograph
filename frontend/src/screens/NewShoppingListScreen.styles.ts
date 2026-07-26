@@ -147,18 +147,6 @@ export const styles = StyleSheet.create({
     minHeight: 42,
     paddingHorizontal: 13,
   },
-  checkbox: {
-    alignItems: 'center',
-    borderColor: '#258043',
-    borderRadius: 4,
-    borderWidth: 1.5,
-    height: 18,
-    justifyContent: 'center',
-    marginRight: 10,
-    width: 18,
-  },
-  checkboxChecked: { backgroundColor: '#258043' },
-  checkmark: { color: '#FFFFFF', fontFamily: 'Monda_700Bold', fontSize: 12, lineHeight: 14 },
   itemName: {
     color: '#262224',
     flex: 1,
@@ -266,26 +254,26 @@ export const styles = StyleSheet.create({
     fontSize: 10,
     marginTop: 2,
   },
-  activeSwitch: {
-    backgroundColor: '#A6A3A4',
-    borderRadius: 14,
-    height: 28,
+  routePlanButton: {
+    alignItems: 'center',
+    borderColor: '#258043',
+    borderRadius: 6,
+    borderWidth: 1,
     justifyContent: 'center',
-    padding: 2,
-    width: 48,
+    minHeight: 36,
+    minWidth: 72,
+    paddingHorizontal: 10,
   },
-  activeSwitchOn: {
-    backgroundColor: '#DFF0DD',
-  },
-  switchThumb: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    height: 24,
-    width: 24,
-  },
-  switchThumbOn: {
-    alignSelf: 'flex-end',
+  routePlanButtonSelected: {
     backgroundColor: '#258043',
+  },
+  routePlanButtonText: {
+    color: '#258043',
+    fontFamily: 'Monda_700Bold',
+    fontSize: 10,
+  },
+  routePlanButtonTextSelected: {
+    color: '#FFFFFF',
   },
   feedbackText: {
     color: '#B42318',
@@ -327,6 +315,14 @@ export const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontFamily: 'Monda_700Bold',
     fontSize: 11,
+  },
+  routeScopeNote: {
+    color: '#615D5F',
+    fontFamily: 'Monda_400Regular',
+    fontSize: 9,
+    lineHeight: 14,
+    marginTop: 7,
+    textAlign: 'right',
   },
   deleteButton: {
     alignItems: 'center',

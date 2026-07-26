@@ -36,11 +36,12 @@ const selectedRoute: RootStackParamList['Map']['route'] = {
   ],
   time: 25,
 };
+const navigation = { goBack: jest.fn() };
 
 const renderScreen = async () => render(
   <MapScreen
     {...({
-      navigation: {},
+      navigation,
       route: {
         key: 'map-test',
         name: 'Map',
@@ -96,8 +97,62 @@ test('preserves ordered coordinate and address-fallback stops, then uses ArcGIS 
   });
 
   expect(screen.getByText('2 stops - 4.8 mi - 14 min')).toBeOnTheScreen();
+  expect(screen.queryByText('Head north toward Stuart Avenue')).not.toBeOnTheScreen();
+  await fireEvent.press(screen.getByLabelText('Expand directions'));
   expect(screen.getByText('Head north toward Stuart Avenue')).toBeOnTheScreen();
   expect(mockRouteMapProps.state).toBe('routeReady');
+});
+
+test('closes the route map from the in-screen header', async () => {
+  await renderScreen();
+
+  await fireEvent.press(screen.getByLabelText('Close route map'));
+  expect(navigation.goBack).toHaveBeenCalledTimes(1);
+});
+
+test('keeps the route fitted while directions expand and highlights selected directions', async () => {
+  await renderScreen();
+
+  await act(async () => {
+    mockRouteMapProps.onRouteSolved({
+      directions: [
+        {
+          distanceMiles: 1.2,
+          sequence: 1,
+          text: 'Head north toward Stuart Avenue',
+          timeMinutes: 3,
+        },
+      ],
+      totalDistanceMiles: 4.8,
+      totalTimeMinutes: 14,
+    });
+  });
+
+  expect(screen.queryByLabelText('Recenter route')).not.toBeOnTheScreen();
+
+  await fireEvent.press(screen.getByLabelText('Expand directions'));
+  expect(mockRouteMapProps.command.payload).toEqual({
+    type: 'setInteraction',
+    enabled: false,
+    bottomPadding: 280,
+  });
+
+  await fireEvent.press(screen.getByLabelText('Direction 1: Head north toward Stuart Avenue'));
+  expect(mockRouteMapProps.command.payload).toEqual({
+    type: 'selectDirection',
+    sequence: 1,
+    bottomPadding: 280,
+  });
+});
+
+test('surfaces Store selections reported by the map', async () => {
+  await renderScreen();
+
+  await act(async () => {
+    mockRouteMapProps.onStopSelected({ name: 'Sprouts', sequence: 1 });
+  });
+
+  expect(screen.getByText('Stop 1: Sprouts')).toBeOnTheScreen();
 });
 
 test('keeps the map available for route errors and resets state on retry', async () => {

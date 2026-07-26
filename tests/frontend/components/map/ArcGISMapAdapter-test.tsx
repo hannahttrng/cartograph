@@ -4,16 +4,18 @@ import { ArcGISMapAdapter } from '../../../../frontend/src/components/map/ArcGIS
 import type { MapRouteData } from '../../../../frontend/src/types/maps';
 
 let mockWebViewProps: any;
+const mockInjectJavaScript = jest.fn();
 
 jest.mock('react-native-webview', () => {
   const React = require('react');
   const { View } = require('react-native');
 
   return {
-    WebView: (props: any) => {
+    WebView: React.forwardRef((props: any, ref: unknown) => {
       mockWebViewProps = props;
+      React.useImperativeHandle(ref, () => ({ injectJavaScript: mockInjectJavaScript }));
       return React.createElement(View, { testID: 'arcgis-webview' });
-    },
+    }),
   };
 });
 
@@ -44,6 +46,7 @@ const renderAdapter = async () => {
     onRouteError: jest.fn(),
     onRouteSolved: jest.fn(),
     onRouteSolving: jest.fn(),
+    onStopSelected: jest.fn(),
   };
 
   await render(<ArcGISMapAdapter mapData={mapData} {...callbacks} />);
@@ -139,4 +142,29 @@ test('dispatches parsed diagnostic snapshots without treating them as errors', a
 
   expect(callbacks.onDiagnostic).toHaveBeenCalledWith(diagnostic);
   expect(callbacks.onMapError).not.toHaveBeenCalled();
+});
+
+test('injects native commands and dispatches selected Stores', async () => {
+  const callbacks = {
+    onDiagnostic: jest.fn(),
+    onMapError: jest.fn(),
+    onMapLoadStart: jest.fn(),
+    onMapReady: jest.fn(),
+    onRouteError: jest.fn(),
+    onRouteSolved: jest.fn(),
+    onRouteSolving: jest.fn(),
+    onStopSelected: jest.fn(),
+  };
+  const command = {
+    id: 1,
+    payload: { type: 'recenterRoute' as const, bottomPadding: 48 },
+  };
+
+  await render(<ArcGISMapAdapter command={command} mapData={mapData} {...callbacks} />);
+
+  expect(mockInjectJavaScript).toHaveBeenCalledWith(
+    'window.cartographHandleCommand?.({"type":"recenterRoute","bottomPadding":48}); true;',
+  );
+  postMessage({ type: 'stopSelected', stop: { name: 'Sprouts', sequence: 1 } });
+  expect(callbacks.onStopSelected).toHaveBeenCalledWith({ name: 'Sprouts', sequence: 1 });
 });

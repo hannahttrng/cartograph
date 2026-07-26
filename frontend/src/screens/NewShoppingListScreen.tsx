@@ -18,10 +18,12 @@ import {
   deleteShoppingList,
   getShoppingList,
   listCatalogTags,
+  listShoppingLists,
   listTagModifiers,
   replaceShoppingList,
   startRouteCalculation,
   toApiError,
+  updateShoppingListActive,
   updateShoppingListName,
 } from '../api';
 import { AppBottomNav, BackButton, DesignIcon } from '../components/common';
@@ -86,7 +88,7 @@ export function NewShoppingListScreen({ navigation, route }: Props) {
   const [catalog, setCatalog] = useState<readonly CatalogTag[]>([]);
   const [baseline, setBaseline] = useState<ShoppingListResponse | null>(null);
   const [listName, setListName] = useState(route.params?.title ?? NEW_LIST_NAME);
-  const [itemName, setItemName] = useState('');
+  const [itemName, setItemName] = useState(route.params?.initialSearch ?? '');
   const [items, setItems] = useState<ShoppingListItemInput[]>([]);
   const [expandedItemTag, setExpandedItemTag] = useState<string | null>(null);
   const [modifierOptionsByTag, setModifierOptionsByTag] = useState<
@@ -330,20 +332,24 @@ export function NewShoppingListScreen({ navigation, route }: Props) {
   const findBestRoute = useCallback(async () => {
     const result = await persistDraft({ forceActive: true });
     if (!result) return;
-    if (!result.routeCalculationTriggered) {
-      mutationLocked.current = true;
-      setIsMutating(true);
-      try {
-        await startRouteCalculation();
-      } catch (error: unknown) {
-        setRequestError(toApiError(error).message);
-        return;
-      } finally {
-        mutationLocked.current = false;
-        setIsMutating(false);
+    mutationLocked.current = true;
+    setIsMutating(true);
+    try {
+      const savedLists = await listShoppingLists();
+      const otherIncludedLists = savedLists.filter(
+        (list) => list.id !== result.savedList.id && list.active,
+      );
+      for (const list of otherIncludedLists) {
+        await updateShoppingListActive(list.id, { active: false });
       }
+      await startRouteCalculation();
+      navigation.navigate('Routes');
+    } catch (error: unknown) {
+      setRequestError(toApiError(error).message);
+    } finally {
+      mutationLocked.current = false;
+      setIsMutating(false);
     }
-    navigation.navigate('Routes');
   }, [navigation, persistDraft]);
 
   const confirmDelete = useCallback(() => {
@@ -456,9 +462,6 @@ export function NewShoppingListScreen({ navigation, route }: Props) {
               return (
               <View key={item.tag}>
                 <View style={styles.itemRow}>
-                  <View style={[styles.checkbox, styles.checkboxChecked]}>
-                    <Text style={styles.checkmark}>✓</Text>
-                  </View>
                   <Text style={styles.itemName}>{itemLabel}</Text>
                   <Text style={styles.itemPrice}>{itemDetails(item, catalog)}</Text>
                   <Pressable
@@ -523,18 +526,20 @@ export function NewShoppingListScreen({ navigation, route }: Props) {
 
         <View style={styles.activeCard}>
           <View style={styles.activeCopy}>
-            <Text style={styles.activeTitle}>Active</Text>
-            <Text style={styles.activeDescription}>Include this list in route planning.</Text>
+            <Text style={styles.activeTitle}>Route planning</Text>
+            <Text style={styles.activeDescription}>{isActive ? 'This list is included when routes are ranked.' : 'This list is saved, but not included in route rankings.'}</Text>
           </View>
           <Pressable
-            accessibilityLabel="Shopping list active"
-            accessibilityRole="switch"
-            accessibilityState={{ checked: isActive, disabled: isMutating }}
+            accessibilityLabel={isActive ? 'Remove list from route planning' : 'Include list in route planning'}
+            accessibilityRole="button"
+            accessibilityState={{ disabled: isMutating, selected: isActive }}
             disabled={isMutating}
             onPress={() => setIsActive((current) => !current)}
-            style={[styles.activeSwitch, isActive && styles.activeSwitchOn]}
+            style={[styles.routePlanButton, isActive && styles.routePlanButtonSelected]}
           >
-            <View style={[styles.switchThumb, isActive && styles.switchThumbOn]} />
+            <Text style={[styles.routePlanButtonText, isActive && styles.routePlanButtonTextSelected]}>
+              {isActive ? 'Included' : 'Include'}
+            </Text>
           </Pressable>
         </View>
 
@@ -544,10 +549,13 @@ export function NewShoppingListScreen({ navigation, route }: Props) {
           <Pressable accessibilityLabel="Save shopping list for later" accessibilityRole="button" accessibilityState={{ busy: isMutating, disabled: !canPersist }} disabled={!canPersist} onPress={() => void saveForLater()} style={({ pressed }) => [styles.button, styles.saveLaterButton, (!canPersist || pressed) && styles.buttonDisabled]}>
             <Text style={styles.saveLaterText}>{isMutating ? 'Saving...' : 'Save for Later'}</Text>
           </Pressable>
-          <Pressable accessibilityLabel="Find best route" accessibilityRole="button" accessibilityState={{ busy: isMutating, disabled: !canPersist }} disabled={!canPersist} onPress={() => void findBestRoute()} style={({ pressed }) => [styles.button, styles.routeButton, (!canPersist || pressed) && styles.buttonDisabled]}>
-            {isMutating ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.buttonText}>Find Best Route</Text>}
+          <Pressable accessibilityLabel="Route this list" accessibilityRole="button" accessibilityState={{ busy: isMutating, disabled: !canPersist }} disabled={!canPersist} onPress={() => void findBestRoute()} style={({ pressed }) => [styles.button, styles.routeButton, (!canPersist || pressed) && styles.buttonDisabled]}>
+            {isMutating ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.buttonText}>Route This List</Text>}
           </Pressable>
         </View>
+        <Text style={styles.routeScopeNote}>
+          Route This List saves any other included lists for later, then ranks routes for this list only.
+        </Text>
         {baseline ? (
           <Pressable accessibilityLabel="Delete shopping list" accessibilityRole="button" disabled={isMutating} onPress={confirmDelete} style={({ pressed }) => [styles.deleteButton, (pressed || isMutating) && styles.buttonDisabled]}>
             <Text style={styles.deleteButtonText}>Delete list</Text>

@@ -46,6 +46,13 @@ const normalizeRecipeUrl = (source: string): string => {
   return normalized;
 };
 
+const getCarterErrorMessage = (error: unknown): string => {
+  const apiError = toApiError(error);
+  return apiError.status === 503
+    ? 'Carter needs backend configuration. Restart FastAPI after loading your .env file.'
+    : apiError.message;
+};
+
 export function AiAssistantScreen({ navigation }: Props) {
   const scrollRef = useRef<ScrollView>(null);
   const recipeRequestIdRef = useRef(0);
@@ -76,7 +83,7 @@ export function AiAssistantScreen({ navigation }: Props) {
         { role: 'assistant', content: response.message },
       ]);
     } catch (error: unknown) {
-      setErrorMessage(toApiError(error).message);
+      setErrorMessage(getCarterErrorMessage(error));
     } finally {
       setIsSubmitting(false);
     }
@@ -104,7 +111,7 @@ export function AiAssistantScreen({ navigation }: Props) {
       }
     } catch (error: unknown) {
       if (recipeRequestIdRef.current === requestId) {
-        setErrorMessage(toApiError(error).message);
+        setErrorMessage(getCarterErrorMessage(error));
       }
     } finally {
       if (recipeRequestIdRef.current === requestId) {
@@ -291,7 +298,7 @@ export function AiAssistantScreen({ navigation }: Props) {
                 style={styles.input}
                 value={draft}
               />
-              <Pressable accessibilityLabel="Send message" disabled={!draft.trim() || isSubmitting} hitSlop={8} onPress={() => void sendMessage()} style={styles.sendButton}>
+              <Pressable accessibilityLabel="Send message" accessibilityRole="button" disabled={!draft.trim() || isSubmitting} hitSlop={8} onPress={() => void sendMessage()} style={styles.sendButton}>
                 <DesignIcon name="send" size={24} />
               </Pressable>
             </View>

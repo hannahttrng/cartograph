@@ -200,10 +200,12 @@ python -m pip install -r backend/requirements.txt
 ```
 
 With the virtual environment active, start the server. Bind to `0.0.0.0` so an
-Android emulator can reach it through `10.0.2.2`:
+Android emulator can reach it through `10.0.2.2`. Limit reload watching to the
+backend source directory so dependency or database changes do not restart the
+server:
 
 ```sh
-python -m uvicorn backend.index:app --reload --host 0.0.0.0 --port 8000
+python -m uvicorn backend.index:app --reload --reload-dir backend --host 0.0.0.0 --port 8000
 ```
 
 The API is available at `http://127.0.0.1:8000`. Useful initial endpoints are:
@@ -257,7 +259,7 @@ cp .env.example .env
 set -a
 source .env
 set +a
-python -m uvicorn backend.index:app --reload
+python -m uvicorn backend.index:app --reload --reload-dir backend
 ```
 
 Restart Uvicorn after creating or changing `.env`. A successful configuration

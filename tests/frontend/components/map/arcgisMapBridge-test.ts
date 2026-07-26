@@ -1,6 +1,7 @@
 import * as ts from 'typescript';
 
 import {
+  createArcGISMapCommandScript,
   createArcGISMapHtml,
   parseArcGISMapMessage,
 } from '../../../../frontend/src/components/map/arcgisMapBridge';
@@ -54,6 +55,8 @@ test('serializes route data safely and preserves ordered round-trip parameters',
   expect(html).toContain('...resolvedStops.map');
   expect(html).toContain('routeData.origin.label + " return"');
   expect(html).toContain('@arcgis/core/layers/RouteLayer.js');
+  expect(html).toContain('@arcgis/core/layers/GraphicsLayer.js');
+  expect(html).toContain('@arcgis/core/Graphic.js');
   expect(html).toContain('@arcgis/core/rest/support/Stop.js');
   expect(html).toContain('new RouteLayer({');
   expect(html).toContain('map.add(routeLayer)');
@@ -64,7 +67,7 @@ test('serializes route data safely and preserves ordered round-trip parameters',
   expect(html).toContain('const solveResult = await routeLayer.solve(routeParameters)');
   expect(html).toContain('routeLayer.update(solveResult)');
   expect(html).toContain('await waitForRenderIdle(reactiveUtils, view, routeLayerView)');
-  expect(html.indexOf('await view.goTo(routeGeometry.extent.expand(1.2))')).toBeLessThan(
+  expect(html.indexOf('view.padding = { top: 32, right: 32, bottom: 48, left: 32 }')).toBeLessThan(
     html.indexOf('const routeScreenshot = await view.takeScreenshot()'),
   );
   expect(html.indexOf('routeLayer.visible = false')).toBeLessThan(
@@ -94,11 +97,44 @@ test('serializes route data safely and preserves ordered round-trip parameters',
   expect(html).toContain('routeLayer.routeInfo.totalDuration');
   expect(html).not.toContain('@arcgis/core/rest/route.js');
   expect(html).not.toContain('mapElement.view.graphics.addMany');
-  expect(html).toContain('color: [28, 159, 232, 0.98]');
+  expect(html).toContain('color: [20, 124, 54, 0.96]');
+  expect(html).toContain('id: "cartograph-route-display-layer"');
+  expect(html).toContain('color: [255, 255, 255, 0.96]');
+  expect(html).toContain('const addStopMarkers = () =>');
+  expect(html).toContain('id: "cartograph-stop-order-layer"');
+  expect(html).toContain('label: "S"');
+  expect(html).toContain('label: "E"');
+  expect(html).toContain('const isNextStop = index === 0');
+  expect(html).toContain('view.on("click"');
+  expect(html).toContain('window.cartographHandleCommand = async (command) =>');
+  expect(html).toContain('command.type === "recenterRoute"');
+  expect(html).toContain('command.type === "selectDirection"');
+  expect(html).toContain('command.type === "selectStop"');
+  expect(html).toContain('command.type === "setInteraction"');
   expect(html).toContain('https://example.test/geocode');
   expect(html).toContain('https://example.test/route');
   expect(html).toContain('src="https://js.arcgis.com/5.1/"');
   expect(html).not.toContain('https://js.arcgis.com/5.1/map-components/');
+});
+
+test('serializes native map commands safely', () => {
+  expect(createArcGISMapCommandScript({
+    type: 'selectDirection',
+    sequence: 3,
+    bottomPadding: 180,
+  })).toBe(
+    'window.cartographHandleCommand?.({"type":"selectDirection","sequence":3,"bottomPadding":180}); true;',
+  );
+});
+
+test('parses a selected Store message', () => {
+  expect(parseArcGISMapMessage(JSON.stringify({
+    type: 'stopSelected',
+    stop: { name: 'Sprouts', sequence: 2 },
+  }))).toEqual({
+    type: 'stopSelected',
+    stop: { name: 'Sprouts', sequence: 2 },
+  });
 });
 
 test('generates opt-in runtime diagnostics for component and core MapView hosts', () => {

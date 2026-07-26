@@ -2,15 +2,18 @@ import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
 import type {
   ArcGISMapDiagnostic,
+  ArcGISMapCommand,
   MapRouteData,
   MapRouteError,
   MapRouteResult,
   MapState,
+  MapStopSelection,
 } from '../../types/maps';
 import { ArcGISMapAdapter } from './ArcGISMapAdapter';
 import { RouteMapFallback } from './RouteMapFallback';
 
 interface RouteMapProps {
+  command?: ArcGISMapCommand;
   mapData: MapRouteData;
   onDiagnostic: (diagnostic: ArcGISMapDiagnostic) => void;
   onMapError: (message: string) => void;
@@ -19,11 +22,13 @@ interface RouteMapProps {
   onRouteError: (error: MapRouteError) => void;
   onRouteSolved: (result: MapRouteResult) => void;
   onRouteSolving: () => void;
+  onStopSelected: (stop: MapStopSelection) => void;
   reloadKey: number;
   state: MapState;
 }
 
 export function RouteMap({
+  command,
   mapData,
   onDiagnostic,
   onMapError,
@@ -32,6 +37,7 @@ export function RouteMap({
   onRouteError,
   onRouteSolved,
   onRouteSolving,
+  onStopSelected,
   reloadKey,
   state,
 }: RouteMapProps) {
@@ -42,6 +48,7 @@ export function RouteMap({
   return (
     <View style={styles.container}>
       <ArcGISMapAdapter
+        command={command}
         key={`${mapData.routeId}-${reloadKey}`}
         mapData={mapData}
         onDiagnostic={onDiagnostic}
@@ -51,6 +58,7 @@ export function RouteMap({
         onRouteError={onRouteError}
         onRouteSolved={onRouteSolved}
         onRouteSolving={onRouteSolving}
+        onStopSelected={onStopSelected}
       />
       {state === 'loadingMap' || state === 'solvingRoute' ? (
         <View style={styles.loadingOverlay}>

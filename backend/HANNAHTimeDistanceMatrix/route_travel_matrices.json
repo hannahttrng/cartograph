@@ -1,0 +1,855 @@
+{
+  "source": "TIme_Distance_Matrix.dbf",
+  "origin": {
+    "matrixNodeId": 13,
+    "catalogStoreId": null,
+    "name": "Esri",
+    "address": "370 New York St, Redlands, CA 92373",
+    "latitude": 34.05673277,
+    "longitude": -117.19529991
+  },
+  "nodes": [
+    {
+      "matrixNodeId": 1,
+      "catalogStoreId": 2,
+      "name": "Trader Joe's",
+      "address": "552 Orange St, Redlands, CA 92374",
+      "latitude": 34.06062438,
+      "longitude": -117.18116909
+    },
+    {
+      "matrixNodeId": 2,
+      "catalogStoreId": 1,
+      "name": "Sprouts",
+      "address": "560 W Stuart Ave, Redlands, CA 92374",
+      "latitude": 34.0604883,
+      "longitude": -117.18871205
+    },
+    {
+      "matrixNodeId": 3,
+      "catalogStoreId": 3,
+      "name": "Stater Bros",
+      "address": "11 E Colton Ave, Redlands, CA 92374",
+      "latitude": 34.0637652,
+      "longitude": -117.18189907
+    },
+    {
+      "matrixNodeId": 4,
+      "catalogStoreId": 4,
+      "name": "Redlands Ranch Market",
+      "address": "800 E Lugonia Ave, Redlands, CA 92374",
+      "latitude": 34.06958476,
+      "longitude": -117.17316999
+    },
+    {
+      "matrixNodeId": 5,
+      "catalogStoreId": 8,
+      "name": "Stater Bros",
+      "address": "1536 Barton Rd, Redlands, CA 92373",
+      "latitude": 34.04824703,
+      "longitude": -117.207111
+    },
+    {
+      "matrixNodeId": 6,
+      "catalogStoreId": 5,
+      "name": "Target Grocery",
+      "address": "27320 W Lugonia Ave, Redlands, CA 92374",
+      "latitude": 34.07239479,
+      "longitude": -117.20755138
+    },
+    {
+      "matrixNodeId": 7,
+      "catalogStoreId": 7,
+      "name": "Gerrards",
+      "address": "705 W Cypress Ave, Redlands, CA 92373",
+      "latitude": 34.04256766,
+      "longitude": -117.18404987
+    },
+    {
+      "matrixNodeId": 8,
+      "catalogStoreId": 6,
+      "name": "Albertsons",
+      "address": "450 E Cypress Ave, Redlands, CA 92373",
+      "latitude": 34.04851223,
+      "longitude": -117.17138515
+    },
+    {
+      "matrixNodeId": 9,
+      "catalogStoreId": 11,
+      "name": "Costco Wholesale",
+      "address": "28000 Greenspot Rd, Highland, CA 92346",
+      "latitude": 34.11020656,
+      "longitude": -117.19272723
+    },
+    {
+      "matrixNodeId": 10,
+      "catalogStoreId": 12,
+      "name": "Grocery Outlet",
+      "address": "27945 Greenspot Rd, Highland, CA 92346",
+      "latitude": 34.10673164,
+      "longitude": -117.19502597
+    },
+    {
+      "matrixNodeId": 11,
+      "catalogStoreId": 9,
+      "name": "Food 4 Less",
+      "address": "2070 W Redlands Blvd, Redlands, CA 92373",
+      "latitude": 34.0649999,
+      "longitude": -117.22477921
+    },
+    {
+      "matrixNodeId": 12,
+      "catalogStoreId": 10,
+      "name": "Stater Bros",
+      "address": "1775 E Lugonia Ave, Redlands, CA 92374",
+      "latitude": 34.071553,
+      "longitude": -117.14009844
+    },
+    {
+      "matrixNodeId": 13,
+      "catalogStoreId": null,
+      "name": "Esri",
+      "address": "370 New York St, Redlands, CA 92373",
+      "latitude": 34.05673277,
+      "longitude": -117.19529991
+    }
+  ],
+  "storeMatrix": {
+    "storeIds": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12
+    ],
+    "matrix": [
+      [
+        {
+          "distanceMiles": 0.0,
+          "travelTimeMinutes": 0.0
+        },
+        {
+          "distanceMiles": 0.669623,
+          "travelTimeMinutes": 3.576255
+        },
+        {
+          "distanceMiles": 0.987849,
+          "travelTimeMinutes": 3.649296
+        },
+        {
+          "distanceMiles": 2.015301,
+          "travelTimeMinutes": 5.786429
+        },
+        {
+          "distanceMiles": 2.038395,
+          "travelTimeMinutes": 7.522917
+        },
+        {
+          "distanceMiles": 1.896307,
+          "travelTimeMinutes": 7.053407
+        },
+        {
+          "distanceMiles": 1.548039,
+          "travelTimeMinutes": 4.958742
+        },
+        {
+          "distanceMiles": 1.863257,
+          "travelTimeMinutes": 5.341362
+        },
+        {
+          "distanceMiles": 3.768457,
+          "travelTimeMinutes": 7.881178
+        },
+        {
+          "distanceMiles": 4.100364,
+          "travelTimeMinutes": 9.981541
+        },
+        {
+          "distanceMiles": 5.4008,
+          "travelTimeMinutes": 10.326664
+        },
+        {
+          "distanceMiles": 5.23989,
+          "travelTimeMinutes": 9.553847
+        }
+      ],
+      [
+        {
+          "distanceMiles": 0.663906,
+          "travelTimeMinutes": 3.736658
+        },
+        {
+          "distanceMiles": 0.0,
+          "travelTimeMinutes": 0.0
+        },
+        {
+          "distanceMiles": 0.295613,
+          "travelTimeMinutes": 1.841728
+        },
+        {
+          "distanceMiles": 1.194845,
+          "travelTimeMinutes": 4.004316
+        },
+        {
+          "distanceMiles": 2.302771,
+          "travelTimeMinutes": 5.57376
+        },
+        {
+          "distanceMiles": 1.760546,
+          "travelTimeMinutes": 5.403467
+        },
+        {
+          "distanceMiles": 1.747691,
+          "travelTimeMinutes": 6.179275
+        },
+        {
+          "distanceMiles": 2.214554,
+          "travelTimeMinutes": 7.114226
+        },
+        {
+          "distanceMiles": 3.144998,
+          "travelTimeMinutes": 5.878355
+        },
+        {
+          "distanceMiles": 3.27991,
+          "travelTimeMinutes": 8.199489
+        },
+        {
+          "distanceMiles": 4.777341,
+          "travelTimeMinutes": 8.323841
+        },
+        {
+          "distanceMiles": 4.616431,
+          "travelTimeMinutes": 7.551024
+        }
+      ],
+      [
+        {
+          "distanceMiles": 0.992921,
+          "travelTimeMinutes": 3.496716
+        },
+        {
+          "distanceMiles": 0.308265,
+          "travelTimeMinutes": 1.924889
+        },
+        {
+          "distanceMiles": 0.0,
+          "travelTimeMinutes": 0.0
+        },
+        {
+          "distanceMiles": 1.114654,
+          "travelTimeMinutes": 3.487155
+        },
+        {
+          "distanceMiles": 2.100875,
+          "travelTimeMinutes": 5.17308
+        },
+        {
+          "distanceMiles": 1.625754,
+          "travelTimeMinutes": 5.512345
+        },
+        {
+          "distanceMiles": 1.817713,
+          "travelTimeMinutes": 6.457768
+        },
+        {
+          "distanceMiles": 2.488456,
+          "travelTimeMinutes": 7.016168
+        },
+        {
+          "distanceMiles": 2.943102,
+          "travelTimeMinutes": 5.477675
+        },
+        {
+          "distanceMiles": 3.199719,
+          "travelTimeMinutes": 7.682327
+        },
+        {
+          "distanceMiles": 4.575445,
+          "travelTimeMinutes": 7.923161
+        },
+        {
+          "distanceMiles": 4.414535,
+          "travelTimeMinutes": 7.150344
+        }
+      ],
+      [
+        {
+          "distanceMiles": 2.020859,
+          "travelTimeMinutes": 5.658539
+        },
+        {
+          "distanceMiles": 1.202018,
+          "travelTimeMinutes": 4.397503
+        },
+        {
+          "distanceMiles": 1.109646,
+          "travelTimeMinutes": 3.671284
+        },
+        {
+          "distanceMiles": 0.0,
+          "travelTimeMinutes": 0.0
+        },
+        {
+          "distanceMiles": 3.133655,
+          "travelTimeMinutes": 8.039127
+        },
+        {
+          "distanceMiles": 1.733783,
+          "travelTimeMinutes": 6.053564
+        },
+        {
+          "distanceMiles": 2.444148,
+          "travelTimeMinutes": 7.093265
+        },
+        {
+          "distanceMiles": 3.516401,
+          "travelTimeMinutes": 9.177991
+        },
+        {
+          "distanceMiles": 3.975882,
+          "travelTimeMinutes": 8.343722
+        },
+        {
+          "distanceMiles": 2.174476,
+          "travelTimeMinutes": 5.058569
+        },
+        {
+          "distanceMiles": 3.949282,
+          "travelTimeMinutes": 9.282752
+        },
+        {
+          "distanceMiles": 4.002646,
+          "travelTimeMinutes": 9.192735
+        }
+      ],
+      [
+        {
+          "distanceMiles": 2.153636,
+          "travelTimeMinutes": 6.955148
+        },
+        {
+          "distanceMiles": 2.166022,
+          "travelTimeMinutes": 6.79482
+        },
+        {
+          "distanceMiles": 2.241311,
+          "travelTimeMinutes": 6.980897
+        },
+        {
+          "distanceMiles": 2.310547,
+          "travelTimeMinutes": 7.896595
+        },
+        {
+          "distanceMiles": 0.0,
+          "travelTimeMinutes": 0.0
+        },
+        {
+          "distanceMiles": 3.82946,
+          "travelTimeMinutes": 9.439344
+        },
+        {
+          "distanceMiles": 3.038019,
+          "travelTimeMinutes": 9.939758
+        },
+        {
+          "distanceMiles": 1.780853,
+          "travelTimeMinutes": 6.349699
+        },
+        {
+          "distanceMiles": 1.631066,
+          "travelTimeMinutes": 5.30504
+        },
+        {
+          "distanceMiles": 4.39561,
+          "travelTimeMinutes": 12.091707
+        },
+        {
+          "distanceMiles": 3.601593,
+          "travelTimeMinutes": 9.290925
+        },
+        {
+          "distanceMiles": 3.440683,
+          "travelTimeMinutes": 8.518108
+        }
+      ],
+      [
+        {
+          "distanceMiles": 1.654478,
+          "travelTimeMinutes": 7.023503
+        },
+        {
+          "distanceMiles": 1.357813,
+          "travelTimeMinutes": 5.345
+        },
+        {
+          "distanceMiles": 1.627956,
+          "travelTimeMinutes": 5.483748
+        },
+        {
+          "distanceMiles": 1.729562,
+          "travelTimeMinutes": 5.671208
+        },
+        {
+          "distanceMiles": 3.815887,
+          "travelTimeMinutes": 8.71065
+        },
+        {
+          "distanceMiles": 0.0,
+          "travelTimeMinutes": 0.0
+        },
+        {
+          "distanceMiles": 1.133302,
+          "travelTimeMinutes": 3.417955
+        },
+        {
+          "distanceMiles": 2.954848,
+          "travelTimeMinutes": 7.56052
+        },
+        {
+          "distanceMiles": 4.658114,
+          "travelTimeMinutes": 9.015245
+        },
+        {
+          "distanceMiles": 3.352268,
+          "travelTimeMinutes": 8.907468
+        },
+        {
+          "distanceMiles": 6.290457,
+          "travelTimeMinutes": 11.460731
+        },
+        {
+          "distanceMiles": 6.129547,
+          "travelTimeMinutes": 10.687914
+        }
+      ],
+      [
+        {
+          "distanceMiles": 1.548039,
+          "travelTimeMinutes": 5.03644
+        },
+        {
+          "distanceMiles": 1.768716,
+          "travelTimeMinutes": 6.172879
+        },
+        {
+          "distanceMiles": 1.812805,
+          "travelTimeMinutes": 6.555209
+        },
+        {
+          "distanceMiles": 2.437127,
+          "travelTimeMinutes": 6.840599
+        },
+        {
+          "distanceMiles": 4.5374,
+          "travelTimeMinutes": 9.922124
+        },
+        {
+          "distanceMiles": 1.112566,
+          "travelTimeMinutes": 3.484626
+        },
+        {
+          "distanceMiles": 0.0,
+          "travelTimeMinutes": 0.0
+        },
+        {
+          "distanceMiles": 1.886764,
+          "travelTimeMinutes": 4.772197
+        },
+        {
+          "distanceMiles": 5.379627,
+          "travelTimeMinutes": 10.226718
+        },
+        {
+          "distanceMiles": 4.073781,
+          "travelTimeMinutes": 10.118942
+        },
+        {
+          "distanceMiles": 7.01197,
+          "travelTimeMinutes": 12.672204
+        },
+        {
+          "distanceMiles": 6.85106,
+          "travelTimeMinutes": 11.899387
+        }
+      ],
+      [
+        {
+          "distanceMiles": 1.979669,
+          "travelTimeMinutes": 5.944047
+        },
+        {
+          "distanceMiles": 2.366146,
+          "travelTimeMinutes": 7.795438
+        },
+        {
+          "distanceMiles": 2.599796,
+          "travelTimeMinutes": 7.771432
+        },
+        {
+          "distanceMiles": 3.627248,
+          "travelTimeMinutes": 9.908566
+        },
+        {
+          "distanceMiles": 1.770419,
+          "travelTimeMinutes": 7.2695
+        },
+        {
+          "distanceMiles": 3.034738,
+          "travelTimeMinutes": 8.098656
+        },
+        {
+          "distanceMiles": 1.987195,
+          "travelTimeMinutes": 5.274116
+        },
+        {
+          "distanceMiles": 0.0,
+          "travelTimeMinutes": 0.0
+        },
+        {
+          "distanceMiles": 2.52856,
+          "travelTimeMinutes": 7.018459
+        },
+        {
+          "distanceMiles": 5.712311,
+          "travelTimeMinutes": 14.103678
+        },
+        {
+          "distanceMiles": 7.012747,
+          "travelTimeMinutes": 14.4488
+        },
+        {
+          "distanceMiles": 6.851837,
+          "travelTimeMinutes": 13.675983
+        }
+      ],
+      [
+        {
+          "distanceMiles": 2.845533,
+          "travelTimeMinutes": 6.18198
+        },
+        {
+          "distanceMiles": 2.857919,
+          "travelTimeMinutes": 6.021652
+        },
+        {
+          "distanceMiles": 2.933209,
+          "travelTimeMinutes": 6.207729
+        },
+        {
+          "distanceMiles": 3.962855,
+          "travelTimeMinutes": 8.913446
+        },
+        {
+          "distanceMiles": 1.626361,
+          "travelTimeMinutes": 5.508259
+        },
+        {
+          "distanceMiles": 4.521357,
+          "travelTimeMinutes": 8.666176
+        },
+        {
+          "distanceMiles": 4.12171,
+          "travelTimeMinutes": 9.399587
+        },
+        {
+          "distanceMiles": 2.300614,
+          "travelTimeMinutes": 6.551668
+        },
+        {
+          "distanceMiles": 0.0,
+          "travelTimeMinutes": 0.0
+        },
+        {
+          "distanceMiles": 6.536132,
+          "travelTimeMinutes": 12.421646
+        },
+        {
+          "distanceMiles": 4.946024,
+          "travelTimeMinutes": 8.915882
+        },
+        {
+          "distanceMiles": 4.785114,
+          "travelTimeMinutes": 8.143065
+        }
+      ],
+      [
+        {
+          "distanceMiles": 4.091752,
+          "travelTimeMinutes": 9.674843
+        },
+        {
+          "distanceMiles": 3.274015,
+          "travelTimeMinutes": 8.323371
+        },
+        {
+          "distanceMiles": 3.180529,
+          "travelTimeMinutes": 7.687588
+        },
+        {
+          "distanceMiles": 2.173594,
+          "travelTimeMinutes": 4.993347
+        },
+        {
+          "distanceMiles": 5.654622,
+          "travelTimeMinutes": 11.606689
+        },
+        {
+          "distanceMiles": 3.35685,
+          "travelTimeMinutes": 8.593961
+        },
+        {
+          "distanceMiles": 4.079292,
+          "travelTimeMinutes": 9.678889
+        },
+        {
+          "distanceMiles": 5.587287,
+          "travelTimeMinutes": 13.194295
+        },
+        {
+          "distanceMiles": 6.496849,
+          "travelTimeMinutes": 11.911284
+        },
+        {
+          "distanceMiles": 0.0,
+          "travelTimeMinutes": 0.0
+        },
+        {
+          "distanceMiles": 5.78704,
+          "travelTimeMinutes": 12.075121
+        },
+        {
+          "distanceMiles": 5.840404,
+          "travelTimeMinutes": 11.985104
+        }
+      ],
+      [
+        {
+          "distanceMiles": 4.893261,
+          "travelTimeMinutes": 9.863387
+        },
+        {
+          "distanceMiles": 4.905646,
+          "travelTimeMinutes": 9.703059
+        },
+        {
+          "distanceMiles": 3.76546,
+          "travelTimeMinutes": 8.882388
+        },
+        {
+          "distanceMiles": 3.887116,
+          "travelTimeMinutes": 8.790014
+        },
+        {
+          "distanceMiles": 3.737763,
+          "travelTimeMinutes": 9.853806
+        },
+        {
+          "distanceMiles": 6.569085,
+          "travelTimeMinutes": 12.347584
+        },
+        {
+          "distanceMiles": 6.169437,
+          "travelTimeMinutes": 13.080994
+        },
+        {
+          "distanceMiles": 6.485563,
+          "travelTimeMinutes": 13.535697
+        },
+        {
+          "distanceMiles": 5.130637,
+          "travelTimeMinutes": 9.855323
+        },
+        {
+          "distanceMiles": 5.731326,
+          "travelTimeMinutes": 11.874558
+        },
+        {
+          "distanceMiles": 0.0,
+          "travelTimeMinutes": 0.0
+        },
+        {
+          "distanceMiles": 0.59059,
+          "travelTimeMinutes": 3.310252
+        }
+      ],
+      [
+        {
+          "distanceMiles": 4.603965,
+          "travelTimeMinutes": 9.226558
+        },
+        {
+          "distanceMiles": 4.616351,
+          "travelTimeMinutes": 9.06623
+        },
+        {
+          "distanceMiles": 3.851356,
+          "travelTimeMinutes": 9.190871
+        },
+        {
+          "distanceMiles": 3.973012,
+          "travelTimeMinutes": 9.098497
+        },
+        {
+          "distanceMiles": 3.448467,
+          "travelTimeMinutes": 9.216976
+        },
+        {
+          "distanceMiles": 6.279789,
+          "travelTimeMinutes": 11.710754
+        },
+        {
+          "distanceMiles": 5.880142,
+          "travelTimeMinutes": 12.444165
+        },
+        {
+          "distanceMiles": 6.196267,
+          "travelTimeMinutes": 12.898867
+        },
+        {
+          "distanceMiles": 4.841341,
+          "travelTimeMinutes": 9.218494
+        },
+        {
+          "distanceMiles": 5.817222,
+          "travelTimeMinutes": 12.183041
+        },
+        {
+          "distanceMiles": 0.423369,
+          "travelTimeMinutes": 3.292858
+        },
+        {
+          "distanceMiles": 0.0,
+          "travelTimeMinutes": 0.0
+        }
+      ]
+    ],
+    "diagnostics": []
+  },
+  "currentLocationMatrix": {
+    "storeIds": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12
+    ],
+    "matrix": [
+      [
+        {
+          "distanceMiles": 0.795616,
+          "travelTimeMinutes": 3.166076
+        },
+        {
+          "distanceMiles": 1.422207,
+          "travelTimeMinutes": 5.57722
+        },
+        {
+          "distanceMiles": 1.415743,
+          "travelTimeMinutes": 4.993461
+        },
+        {
+          "distanceMiles": 2.443194,
+          "travelTimeMinutes": 7.130594
+        },
+        {
+          "distanceMiles": 1.730158,
+          "travelTimeMinutes": 6.977413
+        },
+        {
+          "distanceMiles": 2.31855,
+          "travelTimeMinutes": 7.532216
+        },
+        {
+          "distanceMiles": 1.705828,
+          "travelTimeMinutes": 5.284231
+        },
+        {
+          "distanceMiles": 1.757425,
+          "travelTimeMinutes": 5.074392
+        },
+        {
+          "distanceMiles": 2.178822,
+          "travelTimeMinutes": 7.346823
+        },
+        {
+          "distanceMiles": 4.528257,
+          "travelTimeMinutes": 11.325706
+        },
+        {
+          "distanceMiles": 5.828694,
+          "travelTimeMinutes": 11.670829
+        },
+        {
+          "distanceMiles": 5.667784,
+          "travelTimeMinutes": 10.898012
+        }
+      ],
+      [
+        {
+          "distanceMiles": 0.794758,
+          "travelTimeMinutes": 3.043334
+        },
+        {
+          "distanceMiles": 1.384151,
+          "travelTimeMinutes": 5.309047
+        },
+        {
+          "distanceMiles": 1.419957,
+          "travelTimeMinutes": 4.718139
+        },
+        {
+          "distanceMiles": 2.447895,
+          "travelTimeMinutes": 6.879963
+        },
+        {
+          "distanceMiles": 1.723457,
+          "travelTimeMinutes": 6.72955
+        },
+        {
+          "distanceMiles": 2.088598,
+          "travelTimeMinutes": 7.340951
+        },
+        {
+          "distanceMiles": 1.722093,
+          "travelTimeMinutes": 5.295766
+        },
+        {
+          "distanceMiles": 1.757608,
+          "travelTimeMinutes": 5.628168
+        },
+        {
+          "distanceMiles": 2.409746,
+          "travelTimeMinutes": 6.485434
+        },
+        {
+          "distanceMiles": 4.518788,
+          "travelTimeMinutes": 10.896266
+        },
+        {
+          "distanceMiles": 5.65516,
+          "travelTimeMinutes": 11.730518
+        },
+        {
+          "distanceMiles": 5.365864,
+          "travelTimeMinutes": 11.093688
+        }
+      ]
+    ],
+    "diagnostics": []
+  }
+}

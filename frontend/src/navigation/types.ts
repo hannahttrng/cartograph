@@ -13,6 +13,7 @@ interface MapRouteInput {
 
 export type RootStackParamList = {
   Home: undefined;
+  LocationMap: undefined;
   Login: undefined;
   Register: undefined;
   ImportRecipes: undefined;
@@ -24,6 +25,7 @@ export type RootStackParamList = {
   NewShoppingList:
     | {
         initialItems?: string[];
+        initialSearch?: string;
         initialTags?: string[];
         listId?: EntityId;
         title?: string;

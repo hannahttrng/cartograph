@@ -1,5 +1,6 @@
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   Pressable,
   ScrollView,
@@ -22,7 +23,7 @@ import { mockStores } from '../mock/mockStores';
 import { mockUser } from '../mock/mockUser';
 import type { RootStackParamList } from '../navigation/types';
 import { colors, radius, shadows } from '../theme';
-import type { Route } from '../types/models';
+import { accountDisplayName, loadAccountPreferences } from '../utils/accountPreferencesStorage';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Home'>;
 
@@ -54,29 +55,32 @@ const recentActivity = mockLists.map((list, index) => ({
   savings: `$${(19.52 - index * 2.75).toFixed(2)}`,
 }));
 
-const mapPreviewRoute: Route = {
-  stores: [
-    {
-      name: mockStores[0].name,
-      address: mockStores[0].address,
-      latitude: mockStores[0].latitude,
-      longitude: mockStores[0].longitude,
-    },
-  ],
-  products: [],
-  distance: 3.2,
-  time: 12,
-  score: 92,
-};
-
 export function HomeScreen({ navigation }: Props) {
   const { top } = useSafeAreaInsets();
   const [searchQuery, setSearchQuery] = useState('');
-  const displayName = mockUser?.name ?? 'User';
+  const [displayName, setDisplayName] = useState('User');
+
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+      void loadAccountPreferences().then((preferences) => {
+        if (!active) return;
+        setDisplayName(accountDisplayName(preferences));
+      }).catch(() => {
+        if (active) setDisplayName('User');
+      });
+      return () => {
+        active = false;
+      };
+    }, []),
+  );
 
   const submitSearch = () => {
-    const item = searchQuery.trim();
-    navigation.navigate('NewShoppingList', item ? { initialItems: [item], title: 'New List' } : undefined);
+    const initialSearch = searchQuery.trim();
+    navigation.navigate(
+      'NewShoppingList',
+      initialSearch ? { initialSearch, title: 'New List' } : undefined,
+    );
   };
 
   return (
@@ -108,15 +112,24 @@ export function HomeScreen({ navigation }: Props) {
             <View style={styles.searchBar}>
               <DesignIcon name="search" size={18} />
               <TextInput
-                accessibilityLabel="Search ingredients or recipes"
+                accessibilityLabel="Search catalog items"
                 onChangeText={setSearchQuery}
                 onSubmitEditing={submitSearch}
-                placeholder="Search ingredients, recipes, etc."
+                placeholder="Search catalog items"
                 placeholderTextColor="#77847D"
                 returnKeyType="search"
                 style={styles.searchInput}
                 value={searchQuery}
               />
+              <Pressable
+                accessibilityLabel="Open catalog search"
+                accessibilityRole="button"
+                hitSlop={8}
+                onPress={submitSearch}
+                style={({ pressed }) => [styles.searchAction, pressed && styles.pressed]}
+              >
+                <DesignIcon name="send" size={18} />
+              </Pressable>
             </View>
           </View>
         </View>
@@ -140,13 +153,9 @@ export function HomeScreen({ navigation }: Props) {
         </View>
         <View style={styles.mapPreview}>
           <MapPreview
-          onPress={() =>
-            navigation.navigate('Map', {
-              route: mapPreviewRoute,
-            })
-          }
-          stores={mockStores}
-          userLocation={mockUser.location}
+            onPress={() => navigation.navigate('NearbyStores')}
+            stores={mockStores}
+            userLocation={mockUser.location}
           />
         </View>
 
@@ -176,13 +185,15 @@ export function HomeScreen({ navigation }: Props) {
 
 const styles = StyleSheet.create({
   screen: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#0E2E12',
     flex: 1,
   },
   content: {
+    backgroundColor: '#FFFFFF',
     paddingBottom: 8,
   },
   hero: {
+    backgroundColor: '#0E2E12',
     overflow: 'hidden',
     width: '100%',
   },
@@ -237,6 +248,12 @@ const styles = StyleSheet.create({
     fontFamily: 'Monda_400Regular',
     fontSize: 14,
     height: '100%',
+  },
+  searchAction: {
+    alignItems: 'center',
+    height: 34,
+    justifyContent: 'center',
+    width: 34,
   },
   quickActionRow: {
     flexDirection: 'row',

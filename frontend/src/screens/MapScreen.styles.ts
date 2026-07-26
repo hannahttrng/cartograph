@@ -8,24 +8,51 @@ export const styles = StyleSheet.create({
     flex: 1,
   },
   summaryBand: {
+    alignItems: 'center',
     backgroundColor: '#FFFFFF',
     borderBottomColor: '#DCE3DC',
     borderBottomWidth: StyleSheet.hairlineWidth,
+    flexDirection: 'row',
+    gap: spacing.sm,
     paddingHorizontal: 18,
-    paddingVertical: 14,
+    paddingVertical: spacing.sm,
+  },
+  summaryCopy: {
+    flex: 1,
+  },
+  closeButton: {
+    alignItems: 'center',
+    borderColor: colors.primary,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    justifyContent: 'center',
+    minHeight: 40,
+    paddingHorizontal: spacing.sm,
+  },
+  closeButtonText: {
+    ...typography.bodyStrong,
+    color: colors.primary,
   },
   title: {
+    ...typography.title,
     color: '#17231A',
     fontSize: 21,
-    fontWeight: '700',
   },
   subtitle: {
+    ...typography.caption,
     color: '#667168',
     fontSize: 14,
     marginTop: 3,
   },
   mapSurface: {
     flex: 1,
+  },
+  selectionStatus: {
+    ...typography.caption,
+    backgroundColor: colors.surface,
+    color: colors.text,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
   },
   routeErrorBand: {
     alignItems: 'center',
@@ -59,6 +86,7 @@ export const styles = StyleSheet.create({
     paddingBottom: 28,
   },
   errorText: {
+    ...typography.body,
     color: '#9A3412',
     fontSize: 14,
     lineHeight: 20,
@@ -82,9 +110,9 @@ export const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   secondaryButtonText: {
+    ...typography.bodyStrong,
     color: '#173F24',
     fontSize: 15,
-    fontWeight: '700',
   },
   pressed: {
     opacity: 0.72,

@@ -1,9 +1,8 @@
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { Alert, Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useState } from 'react';
+import { ActivityIndicator, Alert, Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import EmailLoginButton from '../../assets/Group 96.svg';
-import UsernameLoginButton from '../../assets/Group 97.svg';
 import LoginBackground from '../../assets/svg icons/Rectangle 132.svg';
 import CarterPin from '../../assets/svg icons/cartograph-18/Group 68.svg';
 import MapPin from '../../assets/svg icons/cartograph-18/Group 70.svg';
@@ -16,16 +15,42 @@ import Cloud from '../../assets/svg icons/cartograph-18/Vector-1.svg';
 import Sparkle from '../../assets/svg icons/cartograph-18/Vector-2.svg';
 import type { RootStackParamList } from '../navigation/types';
 import { AuthService } from '../services/auth';
+import { loadAccountPreferences, saveAccountPreferences } from '../utils/accountPreferencesStorage';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Login'>;
 
 export default function LoginScreen({ navigation }: Props) {
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [isEntering, setIsEntering] = useState(false);
+  const canEnter = Boolean(name.trim() && email.trim() && !isEntering);
+
   const login = async () => {
+    if (!canEnter) {
+      Alert.alert('Enter the demo', 'Add your name and email to continue.');
+      return;
+    }
+    setIsEntering(true);
     try {
-      await AuthService.login({ email: 'carter@cartograph.demo', password: 'demo' });
+      await new Promise((resolve) => setTimeout(resolve, 700));
+      await AuthService.register({ email, name, password: 'demo' });
+      const savedPreferences = await loadAccountPreferences();
+      await saveAccountPreferences({
+        dealAlerts: savedPreferences?.dealAlerts ?? true,
+        dietary: savedPreferences?.dietary ?? [],
+        displayName: name.trim(),
+        householdSize: savedPreferences?.householdSize ?? 1,
+        listReminders: savedPreferences?.listReminders ?? false,
+        location: savedPreferences?.location ?? 'Redlands, CA',
+        pronouns: savedPreferences?.pronouns ?? '',
+        routeUpdates: savedPreferences?.routeUpdates ?? true,
+        stores: savedPreferences?.stores ?? [],
+      });
       navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
     } catch {
       Alert.alert('Login unavailable', 'Your demo session could not be saved. Please try again.');
+    } finally {
+      setIsEntering(false);
     }
   };
 
@@ -56,11 +81,34 @@ export default function LoginScreen({ navigation }: Props) {
           <Text style={styles.tagline}>chart your cart.</Text>
         </View>
 
-        <Pressable accessibilityLabel="Login with Email" accessibilityRole="button" onPress={() => void login()} style={({ pressed }) => [styles.loginControl, pressed && styles.pressed]}>
-          <EmailLoginButton height="100%" width="100%" />
-        </Pressable>
-        <Pressable accessibilityLabel="Login with Username" accessibilityRole="button" onPress={() => void login()} style={({ pressed }) => [styles.loginControl, styles.usernameControl, pressed && styles.pressed]}>
-          <UsernameLoginButton height="100%" width="100%" />
+        <View style={styles.form}>
+          <Text style={styles.formPrompt}>Enter any demo name and email.</Text>
+          <TextInput
+            accessibilityLabel="Demo name"
+            autoCapitalize="words"
+            editable={!isEntering}
+            onChangeText={setName}
+            placeholder="Your name"
+            placeholderTextColor="#77847D"
+            style={styles.input}
+            value={name}
+          />
+          <TextInput
+            accessibilityLabel="Demo email"
+            autoCapitalize="none"
+            editable={!isEntering}
+            keyboardType="email-address"
+            onChangeText={setEmail}
+            onSubmitEditing={() => void login()}
+            placeholder="you@example.com"
+            placeholderTextColor="#77847D"
+            returnKeyType="go"
+            style={styles.input}
+            value={email}
+          />
+        </View>
+        <Pressable accessibilityLabel="Enter Cartograph demo" accessibilityRole="button" accessibilityState={{ busy: isEntering, disabled: !canEnter }} disabled={!canEnter} onPress={() => void login()} style={({ pressed }) => [styles.loginControl, (!canEnter || pressed) && styles.loginControlDisabled]}>
+          {isEntering ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.loginControlText}>Enter Demo</Text>}
         </Pressable>
         <View style={styles.orRow}><View style={styles.divider} /><Text style={styles.or}>or</Text><View style={styles.divider} /></View>
         <Pressable accessibilityRole="button" onPress={() => navigation.navigate('Register')}>
@@ -89,12 +137,16 @@ const styles = StyleSheet.create({
   bushLeft: { left: 52, position: 'absolute', top: 230, zIndex: 3 },
   bushRight: { position: 'absolute', right: 48, top: 229, zIndex: 3 },
   carterPin: { alignSelf: 'center', marginTop: 100, zIndex: 4 },
-  content: { paddingHorizontal: 24, paddingTop: 350 },
+  content: { paddingHorizontal: 24, paddingTop: 326 },
   brandBlock: { alignItems: 'center' },
   brandLogo: { height: 35, width: 185 },
   tagline: { color: '#FFFFFF', fontFamily: 'Monda_400Regular', fontSize: 13, marginTop: 4 },
-  loginControl: { height: 43, marginTop: 45, width: '100%' },
-  usernameControl: { marginTop: 13 },
+  form: { gap: 8, marginTop: 24 },
+  formPrompt: { color: '#FFFFFF', fontFamily: 'Monda_400Regular', fontSize: 12, textAlign: 'center' },
+  input: { backgroundColor: '#FFFFFF', borderColor: '#D9DED8', borderRadius: 8, borderWidth: 1, color: '#1D2820', fontFamily: 'Monda_400Regular', fontSize: 14, minHeight: 44, paddingHorizontal: 14 },
+  loginControl: { alignItems: 'center', backgroundColor: '#147C36', borderRadius: 8, height: 43, justifyContent: 'center', marginTop: 13, width: '100%' },
+  loginControlText: { color: '#FFFFFF', fontFamily: 'Monda_700Bold', fontSize: 14 },
+  loginControlDisabled: { opacity: 0.48 },
   orRow: { alignItems: 'center', flexDirection: 'row', gap: 26, marginTop: 28 },
   divider: { backgroundColor: '#FFFFFF', flex: 1, height: 1 },
   or: { color: '#FFFFFF', fontFamily: 'Monda_400Regular', fontSize: 14 },

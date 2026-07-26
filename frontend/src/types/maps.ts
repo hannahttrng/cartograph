@@ -27,6 +27,22 @@ export interface MapRouteResult {
   totalTimeMinutes: number;
 }
 
+export interface MapStopSelection {
+  name: string;
+  sequence: number;
+}
+
+export type ArcGISMapCommandPayload =
+  | { type: 'recenterRoute'; bottomPadding: number }
+  | { type: 'selectDirection'; sequence: number; bottomPadding: number }
+  | { type: 'selectStop'; sequence: number; bottomPadding: number }
+  | { type: 'setInteraction'; enabled: boolean; bottomPadding: number };
+
+export interface ArcGISMapCommand {
+  id: number;
+  payload: ArcGISMapCommandPayload;
+}
+
 export type MapRouteErrorCode =
   | 'CONFIGURATION'
   | 'GEOCODING'
@@ -82,6 +98,7 @@ export type ArcGISMapMessage =
   | { type: 'mapReady' }
   | { type: 'routeSolving' }
   | { type: 'routeSolved'; result: MapRouteResult }
+  | { type: 'stopSelected'; stop: MapStopSelection }
   | { type: 'routeError'; error: MapRouteError }
   | { type: 'diagnostic'; diagnostic: ArcGISMapDiagnostic }
   | { type: 'mapError'; message: string }

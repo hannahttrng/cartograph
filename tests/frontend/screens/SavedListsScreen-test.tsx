@@ -76,8 +76,8 @@ describe('<SavedListsScreen />', () => {
 
     expect(await screen.findByText('Weekend')).toBeOnTheScreen();
     expect(screen.getByText('Party')).toBeOnTheScreen();
-    expect(screen.getByText('1 item · Active')).toBeOnTheScreen();
-    expect(screen.getByText('2 items · Inactive')).toBeOnTheScreen();
+    expect(screen.getByText('1 item · Included in routes')).toBeOnTheScreen();
+    expect(screen.getByText('2 items · Saved for later')).toBeOnTheScreen();
 
     await fireEvent.press(screen.getByLabelText('Edit Weekend'));
     expect(navigation.navigate).toHaveBeenCalledWith('NewShoppingList', { listId: 7 });
@@ -100,13 +100,13 @@ describe('<SavedListsScreen />', () => {
     await renderScreen();
     await screen.findByText('Weekend');
 
-    await fireEvent.press(screen.getByLabelText('Weekend active'));
+    await fireEvent.press(screen.getByLabelText('Remove Weekend from route planning'));
     await waitFor(() => {
       expect(mockedApi.updateShoppingListActive).toHaveBeenCalledWith(7, {
         active: false,
       });
     });
-    expect(screen.getByLabelText('Weekend active').props.accessibilityState.checked).toBe(false);
+    expect(screen.getByLabelText('Include Weekend in route planning').props.accessibilityState.selected).toBe(false);
   });
 
   test('rolls back a failed active update and renders a row error', async () => {
@@ -114,9 +114,9 @@ describe('<SavedListsScreen />', () => {
     await renderScreen();
     await screen.findByText('Weekend');
 
-    await fireEvent.press(screen.getByLabelText('Weekend active'));
+    await fireEvent.press(screen.getByLabelText('Remove Weekend from route planning'));
     expect(await screen.findByText('Update failed')).toBeOnTheScreen();
-    expect(screen.getByLabelText('Weekend active').props.accessibilityState.checked).toBe(true);
+    expect(screen.getByLabelText('Remove Weekend from route planning').props.accessibilityState.selected).toBe(true);
   });
 
   test('shows a retry action when the backend list request fails', async () => {

@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { StyleSheet, View } from 'react-native';
 import type { WebViewMessageEvent } from 'react-native-webview';
 import { WebView } from 'react-native-webview';
@@ -15,16 +15,20 @@ import {
 } from '../../constants/config';
 import type {
   ArcGISMapDiagnostic,
+  ArcGISMapCommand,
   MapRouteData,
   MapRouteError,
   MapRouteResult,
+  MapStopSelection,
 } from '../../types/maps';
 import {
+  createArcGISMapCommandScript,
   createArcGISMapHtml,
   parseArcGISMapMessage,
 } from './arcgisMapBridge';
 
 interface ArcGISMapAdapterProps {
+  command?: ArcGISMapCommand;
   mapData: MapRouteData;
   onDiagnostic: (diagnostic: ArcGISMapDiagnostic) => void;
   onMapError: (message: string) => void;
@@ -33,9 +37,11 @@ interface ArcGISMapAdapterProps {
   onRouteError: (error: MapRouteError) => void;
   onRouteSolved: (result: MapRouteResult) => void;
   onRouteSolving: () => void;
+  onStopSelected: (stop: MapStopSelection) => void;
 }
 
 export function ArcGISMapAdapter({
+  command,
   mapData,
   onDiagnostic,
   onMapError,
@@ -44,7 +50,9 @@ export function ArcGISMapAdapter({
   onRouteError,
   onRouteSolved,
   onRouteSolving,
+  onStopSelected,
 }: ArcGISMapAdapterProps) {
+  const webViewRef = useRef<WebView>(null);
   const html = useMemo(
     () => createArcGISMapHtml({
       apiKey: ARCGIS_API_KEY,
@@ -59,6 +67,14 @@ export function ArcGISMapAdapter({
     }),
     [mapData],
   );
+
+  useEffect(() => {
+    if (command) {
+      webViewRef.current?.injectJavaScript(
+        createArcGISMapCommandScript(command.payload),
+      );
+    }
+  }, [command]);
 
   const handleMessage = (event: WebViewMessageEvent) => {
     const message = parseArcGISMapMessage(event.nativeEvent.data);
@@ -76,6 +92,9 @@ export function ArcGISMapAdapter({
         break;
       case 'routeSolved':
         onRouteSolved(message.result);
+        break;
+      case 'stopSelected':
+        onStopSelected(message.stop);
         break;
       case 'routeError':
         onRouteError(message.error);
@@ -117,6 +136,7 @@ export function ArcGISMapAdapter({
         onMessage={handleMessage}
         onRenderProcessGone={handleMapProcessError}
         originWhitelist={['https://*']}
+        ref={webViewRef}
         scrollEnabled={false}
         setSupportMultipleWindows={false}
         source={{ html, baseUrl: ARCGIS_PORTAL_URL }}

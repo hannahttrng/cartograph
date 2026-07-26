@@ -120,18 +120,19 @@ export function RoutesScreen({ navigation }: Props) {
     setRefreshKey((current) => current + 1);
   }, []);
 
+  const serverRanks = useMemo(
+    () => new Map(candidates.map((candidate, index) => [candidate.id, index + 1])),
+    [candidates],
+  );
   const sortedCandidates = useMemo(() => {
     if (sort === 'best') return candidates;
-    const serverRanks = new Map(
-      candidates.map((candidate, index) => [candidate.id, index]),
-    );
     return [...candidates].sort((first, second) => {
       const difference = sort === 'cheaper'
         ? first.productPrice - second.productPrice
         : first.distance - second.distance;
-      return difference || (serverRanks.get(first.id) ?? 0) - (serverRanks.get(second.id) ?? 0);
+      return difference || (serverRanks.get(first.id) ?? 1) - (serverRanks.get(second.id) ?? 1);
     });
-  }, [candidates, sort]);
+  }, [candidates, serverRanks, sort]);
 
   let emptyContent;
   if (requestError) {
@@ -221,7 +222,7 @@ export function RoutesScreen({ navigation }: Props) {
             ) : null}
           </View>
         }
-        renderItem={({ item, index }) => (
+        renderItem={({ item }) => (
           <RouteCard
             isExpanded={expandedRouteId === item.id}
             onOpenMap={() => navigation.navigate('Map', {
@@ -231,7 +232,7 @@ export function RoutesScreen({ navigation }: Props) {
             onToggle={() =>
               setExpandedRouteId((currentId) => currentId === item.id ? null : item.id)
             }
-            rank={index + 1}
+            rank={serverRanks.get(item.id) ?? 1}
             route={item}
             routeCount={sortedCandidates.length}
           />

@@ -2,6 +2,7 @@ import type { ComponentProps } from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 
 import * as assistantApi from '../../../frontend/src/api';
+import { ApiError } from '../../../frontend/src/api';
 import { AiAssistantScreen } from '../../../frontend/src/screens/AiAssistantScreen';
 
 jest.mock('../../../frontend/src/api', () => {
@@ -76,4 +77,23 @@ test('preserves recipe warnings and sends catalog tags to the list builder', asy
       title: 'Taco Night',
     });
   });
+});
+
+test('explains how to recover when Carter is not configured', async () => {
+  mockedApi.askCarter.mockRejectedValue(new ApiError('Carter is not configured yet.', {
+    status: 503,
+  }));
+
+  await render(
+    <AiAssistantScreen
+      {...({ navigation } as unknown as ComponentProps<typeof AiAssistantScreen>)}
+    />,
+  );
+
+  await fireEvent.changeText(screen.getByPlaceholderText('Ask Carter anything...'), 'Help me plan dinner');
+  await fireEvent.press(screen.getByRole('button', { name: 'Send message' }));
+
+  expect(await screen.findByText(
+    'Carter needs backend configuration. Restart FastAPI after loading your .env file.',
+  )).toBeOnTheScreen();
 });

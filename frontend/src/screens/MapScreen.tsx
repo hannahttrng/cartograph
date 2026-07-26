@@ -13,10 +13,12 @@ import {
 import type { RootStackParamList } from '../navigation/types';
 import type {
   ArcGISMapDiagnostic,
+  ArcGISMapCommand,
   MapRouteData,
   MapRouteError,
   MapRouteResult,
   MapState,
+  MapStopSelection,
 } from '../types/maps';
 import { styles } from './MapScreen.styles';
 
@@ -24,7 +26,7 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Map'>;
 type MapStoreInput = RootStackParamList['Map']['route']['stores'][number];
 const MAX_MAP_DIAGNOSTICS = 24;
 
-export function MapScreen({ route }: Props) {
+export function MapScreen({ navigation, route }: Props) {
   const { route: selectedRoute, routeId } = route.params;
   const mapData = useMemo<MapRouteData>(
     () => ({
@@ -54,6 +56,10 @@ export function MapScreen({ route }: Props) {
   const [firstDiagnosticFailure, setFirstDiagnosticFailure] =
     useState<ArcGISMapDiagnostic | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const [mapCommand, setMapCommand] = useState<ArcGISMapCommand>();
+  const [isDirectionsExpanded, setIsDirectionsExpanded] = useState(false);
+  const [selectedDirection, setSelectedDirection] = useState<number | null>(null);
+  const [selectedStop, setSelectedStop] = useState<MapStopSelection | null>(null);
 
   useEffect(() => {
     setMapState('loadingMap');
@@ -62,7 +68,24 @@ export function MapScreen({ route }: Props) {
     setRouteResult(null);
     setMapDiagnostics([]);
     setFirstDiagnosticFailure(null);
+    setMapCommand(undefined);
+    setIsDirectionsExpanded(false);
+    setSelectedDirection(null);
+    setSelectedStop(null);
   }, [mapData]);
+
+  const sendMapCommand = useCallback((payload: ArcGISMapCommand['payload']) => {
+    setMapCommand((current) => ({ id: (current?.id ?? 0) + 1, payload }));
+  }, []);
+
+  const setDirectionsExpanded = useCallback((expanded: boolean) => {
+    setIsDirectionsExpanded(expanded);
+    sendMapCommand({
+      type: 'setInteraction',
+      enabled: !expanded,
+      bottomPadding: expanded ? 280 : 48,
+    });
+  }, [sendMapCommand]);
 
   const retryMap = useCallback(() => {
     setMapState('loadingMap');
@@ -96,6 +119,7 @@ export function MapScreen({ route }: Props) {
     : null;
   const routeMap = (
     <RouteMap
+      command={mapCommand}
       mapData={mapData}
       onDiagnostic={(diagnostic) => {
         setMapDiagnostics((current) =>
@@ -129,6 +153,10 @@ export function MapScreen({ route }: Props) {
         setMapState('routeReady');
       }}
       onRouteSolving={() => setMapState('solvingRoute')}
+      onStopSelected={(stop) => {
+        setSelectedStop(stop);
+        setSelectedDirection(null);
+      }}
       reloadKey={reloadKey}
       state={mapState}
     />
@@ -136,7 +164,7 @@ export function MapScreen({ route }: Props) {
 
   if (mapState === 'mapUnavailable') {
     return (
-      <SafeAreaView edges={['bottom']} style={styles.screen}>
+      <SafeAreaView edges={['top', 'bottom']} style={styles.screen}>
         <ScrollView contentContainerStyle={styles.fallbackContent}>
           <View style={styles.summaryBand}>
             <Text accessibilityRole="header" style={styles.title}>Route map</Text>
@@ -169,12 +197,27 @@ export function MapScreen({ route }: Props) {
   }
 
   return (
-    <SafeAreaView edges={['bottom']} style={styles.screen}>
+    <SafeAreaView edges={['top', 'bottom']} style={styles.screen}>
       <View style={styles.summaryBand}>
-        <Text accessibilityRole="header" style={styles.title}>Route map</Text>
-        <Text style={styles.subtitle}>{summary}</Text>
+        <Pressable
+          accessibilityLabel="Close route map"
+          accessibilityRole="button"
+          onPress={() => navigation.goBack()}
+          style={({ pressed }) => [styles.closeButton, pressed && styles.pressed]}
+        >
+          <Text style={styles.closeButtonText}>Close</Text>
+        </Pressable>
+        <View style={styles.summaryCopy}>
+          <Text accessibilityRole="header" style={styles.title}>Route map</Text>
+          <Text style={styles.subtitle}>{summary}</Text>
+        </View>
       </View>
       <View style={styles.mapSurface}>{routeMap}</View>
+      {selectedStop ? (
+        <Text accessibilityLiveRegion="polite" style={styles.selectionStatus}>
+          Stop {selectedStop.sequence}: {selectedStop.name}
+        </Text>
+      ) : null}
       <MapDiagnosticsPanel
         diagnostics={mapDiagnostics}
         firstFailure={firstDiagnosticFailure}
@@ -195,8 +238,20 @@ export function MapScreen({ route }: Props) {
       ) : null}
       {routeResult ? (
         <RouteDirectionsPanel
+          isExpanded={isDirectionsExpanded}
           key={`${mapData.routeId}-${reloadKey}`}
+          onExpandedChange={setDirectionsExpanded}
+          onSelectDirection={(sequence) => {
+            setSelectedDirection(sequence);
+            setSelectedStop(null);
+            sendMapCommand({
+              type: 'selectDirection',
+              sequence,
+              bottomPadding: isDirectionsExpanded ? 280 : 48,
+            });
+          }}
           result={routeResult}
+          selectedSequence={selectedDirection}
         />
       ) : null}
     </SafeAreaView>

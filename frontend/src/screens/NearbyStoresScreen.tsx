@@ -1,10 +1,12 @@
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AppBottomNav, BackButton, DesignIcon } from '../components/common';
+import { MapPreview } from '../components/map/MapPreview';
 import { StoreCard } from '../components/store';
 import { mockStores } from '../mock/mockStores';
+import { mockUser } from '../mock/mockUser';
 import type { RootStackParamList } from '../navigation/types';
 import { colors } from '../theme';
 
@@ -22,8 +24,7 @@ export function NearbyStoresScreen({ navigation }: Props) {
       </View>
 
       <View style={styles.map}>
-        <Image resizeMode="cover" source={require('../../assets/images/nearby-stores-map.png')} style={styles.mapImage} />
-        <View pointerEvents="none" style={styles.mapTint} />
+        <MapPreview fullScreen stores={mockStores} userLocation={mockUser.location} />
       </View>
 
       <View style={styles.sheetHandle} />
@@ -44,8 +45,6 @@ const styles = StyleSheet.create({
   title: { color: '#030303', flex: 1, fontFamily: 'Monda_700Bold', fontSize: 20, marginLeft: 2 },
   profileButton: { alignItems: 'center', backgroundColor: '#E8F5BC', borderColor: '#FFFFFF', borderRadius: 22, borderWidth: 2, height: 40, justifyContent: 'center', width: 44 },
   map: { aspectRatio: 435 / 417, backgroundColor: '#EEF1ED', overflow: 'hidden', width: '100%' },
-  mapImage: { height: '105%', width: '100%' },
-  mapTint: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(228,210,210,0.12)' },
   sheetHandle: { alignSelf: 'center', backgroundColor: '#D9D9D9', borderRadius: 20, height: 6, marginTop: 9, width: 77 },
   content: { paddingBottom: 8, paddingHorizontal: 16 },
   sectionTitle: { color: '#030303', fontFamily: 'Monda_700Bold', fontSize: 16, marginBottom: 2, marginTop: 7 },

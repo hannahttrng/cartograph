@@ -1,0 +1,170 @@
+origin_node_id,origin_name,destination_node_id,destination_name,distance_miles,travel_time_minutes
+1,Trader Joe's,1,Trader Joe's,0.0,0.0
+1,Trader Joe's,2,Sprouts,0.663906,3.736658
+1,Trader Joe's,3,Stater Bros,0.295613,1.841728
+1,Trader Joe's,4,Redlands Ranch Market,1.194845,4.004316
+1,Trader Joe's,5,Stater Bros,2.214554,7.114226
+1,Trader Joe's,6,Target Grocery,2.302771,5.57376
+1,Trader Joe's,7,Gerrards,1.747691,6.179275
+1,Trader Joe's,8,Albertsons,1.760546,5.403467
+1,Trader Joe's,9,Costco Wholesale,4.777341,8.323841
+1,Trader Joe's,10,Grocery Outlet,4.616431,7.551024
+1,Trader Joe's,11,Food 4 Less,3.144998,5.878355
+1,Trader Joe's,12,Stater Bros,3.27991,8.199489
+1,Trader Joe's,13,Esri,1.384151,5.309047
+2,Sprouts,1,Trader Joe's,0.669623,3.576255
+2,Sprouts,2,Sprouts,0.0,0.0
+2,Sprouts,3,Stater Bros,0.987849,3.649296
+2,Sprouts,4,Redlands Ranch Market,2.015301,5.786429
+2,Sprouts,5,Stater Bros,1.863257,5.341362
+2,Sprouts,6,Target Grocery,2.038395,7.522917
+2,Sprouts,7,Gerrards,1.548039,4.958742
+2,Sprouts,8,Albertsons,1.896307,7.053407
+2,Sprouts,9,Costco Wholesale,5.4008,10.326664
+2,Sprouts,10,Grocery Outlet,5.23989,9.553847
+2,Sprouts,11,Food 4 Less,3.768457,7.881178
+2,Sprouts,12,Stater Bros,4.100364,9.981541
+2,Sprouts,13,Esri,0.794758,3.043334
+3,Stater Bros,1,Trader Joe's,0.308265,1.924889
+3,Stater Bros,2,Sprouts,0.992921,3.496716
+3,Stater Bros,3,Stater Bros,0.0,0.0
+3,Stater Bros,4,Redlands Ranch Market,1.114654,3.487155
+3,Stater Bros,5,Stater Bros,2.488456,7.016168
+3,Stater Bros,6,Target Grocery,2.100875,5.17308
+3,Stater Bros,7,Gerrards,1.817713,6.457768
+3,Stater Bros,8,Albertsons,1.625754,5.512345
+3,Stater Bros,9,Costco Wholesale,4.575445,7.923161
+3,Stater Bros,10,Grocery Outlet,4.414535,7.150344
+3,Stater Bros,11,Food 4 Less,2.943102,5.477675
+3,Stater Bros,12,Stater Bros,3.199719,7.682327
+3,Stater Bros,13,Esri,1.419957,4.718139
+4,Redlands Ranch Market,1,Trader Joe's,1.202018,4.397503
+4,Redlands Ranch Market,2,Sprouts,2.020859,5.658539
+4,Redlands Ranch Market,3,Stater Bros,1.109646,3.671284
+4,Redlands Ranch Market,4,Redlands Ranch Market,0.0,0.0
+4,Redlands Ranch Market,5,Stater Bros,3.516401,9.177991
+4,Redlands Ranch Market,6,Target Grocery,3.133655,8.039127
+4,Redlands Ranch Market,7,Gerrards,2.444148,7.093265
+4,Redlands Ranch Market,8,Albertsons,1.733783,6.053564
+4,Redlands Ranch Market,9,Costco Wholesale,3.949282,9.282752
+4,Redlands Ranch Market,10,Grocery Outlet,4.002646,9.192735
+4,Redlands Ranch Market,11,Food 4 Less,3.975882,8.343722
+4,Redlands Ranch Market,12,Stater Bros,2.174476,5.058569
+4,Redlands Ranch Market,13,Esri,2.447895,6.879963
+5,Stater Bros,1,Trader Joe's,2.366146,7.795438
+5,Stater Bros,2,Sprouts,1.979669,5.944047
+5,Stater Bros,3,Stater Bros,2.599796,7.771432
+5,Stater Bros,4,Redlands Ranch Market,3.627248,9.908566
+5,Stater Bros,5,Stater Bros,0.0,0.0
+5,Stater Bros,6,Target Grocery,1.770419,7.2695
+5,Stater Bros,7,Gerrards,1.987195,5.274116
+5,Stater Bros,8,Albertsons,3.034738,8.098656
+5,Stater Bros,9,Costco Wholesale,7.012747,14.4488
+5,Stater Bros,10,Grocery Outlet,6.851837,13.675983
+5,Stater Bros,11,Food 4 Less,2.52856,7.018459
+5,Stater Bros,12,Stater Bros,5.712311,14.103678
+5,Stater Bros,13,Esri,1.757608,5.628168
+6,Target Grocery,1,Trader Joe's,2.166022,6.79482
+6,Target Grocery,2,Sprouts,2.153636,6.955148
+6,Target Grocery,3,Stater Bros,2.241311,6.980897
+6,Target Grocery,4,Redlands Ranch Market,2.310547,7.896595
+6,Target Grocery,5,Stater Bros,1.780853,6.349699
+6,Target Grocery,6,Target Grocery,0.0,0.0
+6,Target Grocery,7,Gerrards,3.038019,9.939758
+6,Target Grocery,8,Albertsons,3.82946,9.439344
+6,Target Grocery,9,Costco Wholesale,3.601593,9.290925
+6,Target Grocery,10,Grocery Outlet,3.440683,8.518108
+6,Target Grocery,11,Food 4 Less,1.631066,5.30504
+6,Target Grocery,12,Stater Bros,4.39561,12.091707
+6,Target Grocery,13,Esri,1.723457,6.72955
+7,Gerrards,1,Trader Joe's,1.768716,6.172879
+7,Gerrards,2,Sprouts,1.548039,5.03644
+7,Gerrards,3,Stater Bros,1.812805,6.555209
+7,Gerrards,4,Redlands Ranch Market,2.437127,6.840599
+7,Gerrards,5,Stater Bros,1.886764,4.772197
+7,Gerrards,6,Target Grocery,4.5374,9.922124
+7,Gerrards,7,Gerrards,0.0,0.0
+7,Gerrards,8,Albertsons,1.112566,3.484626
+7,Gerrards,9,Costco Wholesale,7.01197,12.672204
+7,Gerrards,10,Grocery Outlet,6.85106,11.899387
+7,Gerrards,11,Food 4 Less,5.379627,10.226718
+7,Gerrards,12,Stater Bros,4.073781,10.118942
+7,Gerrards,13,Esri,1.722093,5.295766
+8,Albertsons,1,Trader Joe's,1.357813,5.345
+8,Albertsons,2,Sprouts,1.654478,7.023503
+8,Albertsons,3,Stater Bros,1.627956,5.483748
+8,Albertsons,4,Redlands Ranch Market,1.729562,5.671208
+8,Albertsons,5,Stater Bros,2.954848,7.56052
+8,Albertsons,6,Target Grocery,3.815887,8.71065
+8,Albertsons,7,Gerrards,1.133302,3.417955
+8,Albertsons,8,Albertsons,0.0,0.0
+8,Albertsons,9,Costco Wholesale,6.290457,11.460731
+8,Albertsons,10,Grocery Outlet,6.129547,10.687914
+8,Albertsons,11,Food 4 Less,4.658114,9.015245
+8,Albertsons,12,Stater Bros,3.352268,8.907468
+8,Albertsons,13,Esri,2.088598,7.340951
+9,Costco Wholesale,1,Trader Joe's,4.905646,9.703059
+9,Costco Wholesale,2,Sprouts,4.893261,9.863387
+9,Costco Wholesale,3,Stater Bros,3.76546,8.882388
+9,Costco Wholesale,4,Redlands Ranch Market,3.887116,8.790014
+9,Costco Wholesale,5,Stater Bros,6.485563,13.535697
+9,Costco Wholesale,6,Target Grocery,3.737763,9.853806
+9,Costco Wholesale,7,Gerrards,6.169437,13.080994
+9,Costco Wholesale,8,Albertsons,6.569085,12.347584
+9,Costco Wholesale,9,Costco Wholesale,0.0,0.0
+9,Costco Wholesale,10,Grocery Outlet,0.59059,3.310252
+9,Costco Wholesale,11,Food 4 Less,5.130637,9.855323
+9,Costco Wholesale,12,Stater Bros,5.731326,11.874558
+9,Costco Wholesale,13,Esri,5.65516,11.730518
+10,Grocery Outlet,1,Trader Joe's,4.616351,9.06623
+10,Grocery Outlet,2,Sprouts,4.603965,9.226558
+10,Grocery Outlet,3,Stater Bros,3.851356,9.190871
+10,Grocery Outlet,4,Redlands Ranch Market,3.973012,9.098497
+10,Grocery Outlet,5,Stater Bros,6.196267,12.898867
+10,Grocery Outlet,6,Target Grocery,3.448467,9.216976
+10,Grocery Outlet,7,Gerrards,5.880142,12.444165
+10,Grocery Outlet,8,Albertsons,6.279789,11.710754
+10,Grocery Outlet,9,Costco Wholesale,0.423369,3.292858
+10,Grocery Outlet,10,Grocery Outlet,0.0,0.0
+10,Grocery Outlet,11,Food 4 Less,4.841341,9.218494
+10,Grocery Outlet,12,Stater Bros,5.817222,12.183041
+10,Grocery Outlet,13,Esri,5.365864,11.093688
+11,Food 4 Less,1,Trader Joe's,2.857919,6.021652
+11,Food 4 Less,2,Sprouts,2.845533,6.18198
+11,Food 4 Less,3,Stater Bros,2.933209,6.207729
+11,Food 4 Less,4,Redlands Ranch Market,3.962855,8.913446
+11,Food 4 Less,5,Stater Bros,2.300614,6.551668
+11,Food 4 Less,6,Target Grocery,1.626361,5.508259
+11,Food 4 Less,7,Gerrards,4.12171,9.399587
+11,Food 4 Less,8,Albertsons,4.521357,8.666176
+11,Food 4 Less,9,Costco Wholesale,4.946024,8.915882
+11,Food 4 Less,10,Grocery Outlet,4.785114,8.143065
+11,Food 4 Less,11,Food 4 Less,0.0,0.0
+11,Food 4 Less,12,Stater Bros,6.536132,12.421646
+11,Food 4 Less,13,Esri,2.409746,6.485434
+12,Stater Bros,1,Trader Joe's,3.274015,8.323371
+12,Stater Bros,2,Sprouts,4.091752,9.674843
+12,Stater Bros,3,Stater Bros,3.180529,7.687588
+12,Stater Bros,4,Redlands Ranch Market,2.173594,4.993347
+12,Stater Bros,5,Stater Bros,5.587287,13.194295
+12,Stater Bros,6,Target Grocery,5.654622,11.606689
+12,Stater Bros,7,Gerrards,4.079292,9.678889
+12,Stater Bros,8,Albertsons,3.35685,8.593961
+12,Stater Bros,9,Costco Wholesale,5.78704,12.075121
+12,Stater Bros,10,Grocery Outlet,5.840404,11.985104
+12,Stater Bros,11,Food 4 Less,6.496849,11.911284
+12,Stater Bros,12,Stater Bros,0.0,0.0
+12,Stater Bros,13,Esri,4.518788,10.896266
+13,Esri,1,Trader Joe's,1.422207,5.57722
+13,Esri,2,Sprouts,0.795616,3.166076
+13,Esri,3,Stater Bros,1.415743,4.993461
+13,Esri,4,Redlands Ranch Market,2.443194,7.130594
+13,Esri,5,Stater Bros,1.757425,5.074392
+13,Esri,6,Target Grocery,1.730158,6.977413
+13,Esri,7,Gerrards,1.705828,5.284231
+13,Esri,8,Albertsons,2.31855,7.532216
+13,Esri,9,Costco Wholesale,5.828694,11.670829
+13,Esri,10,Grocery Outlet,5.667784,10.898012
+13,Esri,11,Food 4 Less,2.178822,7.346823
+13,Esri,12,Stater Bros,4.528257,11.325706
+13,Esri,13,Esri,0.0,0.0

@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { Image, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { Image, Linking, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import ListsControl from '../../assets/Group 94.svg';
@@ -17,7 +17,7 @@ import { AppBottomNav, DesignIcon, type DesignIconName } from '../components/com
 import type { RootStackParamList } from '../navigation/types';
 import { AuthService } from '../services/auth';
 import { colors, radius, spacing, typography } from '../theme';
-import { loadAccountPreferences, saveAccountPreferences } from '../utils/accountPreferencesStorage';
+import { accountDisplayName, loadAccountPreferences, saveAccountPreferences } from '../utils/accountPreferencesStorage';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Account'>;
 type SettingsSection = 'personal' | 'notifications' | 'preferences';
@@ -40,6 +40,7 @@ const settingsSections: { id: SettingsSection; label: string }[] = [
   { id: 'notifications', label: 'Notifications' },
   { id: 'preferences', label: 'Preferences' },
 ];
+const FEEDBACK_SURVEY_URL = 'https://arcg.is/0LS0yW1';
 const storeLogoSources = {
   albertsons: require('../../assets/images/store-logos/albertsons.png'),
   'food-4-less': require('../../assets/images/store-logos/food-4-less.png'),
@@ -51,9 +52,10 @@ const storeLogoSources = {
 } as const;
 
 export function AccountScreen({ navigation }: Props) {
+  const displayNameInputRef = useRef<TextInput>(null);
   const [preferencesLoaded, setPreferencesLoaded] = useState(false);
   const [expandedSection, setExpandedSection] = useState<SettingsSection | null>('preferences');
-  const [displayName, setDisplayName] = useState('Carter CartCart');
+  const [displayName, setDisplayName] = useState('User');
   const [pronouns, setPronouns] = useState('he/him');
   const [location, setLocation] = useState('Redlands, CA');
   const [dealAlerts, setDealAlerts] = useState(true);
@@ -70,7 +72,7 @@ export function AccountScreen({ navigation }: Props) {
       if (saved) {
         setDealAlerts(saved.dealAlerts);
         setDietary(saved.dietary);
-        setDisplayName(saved.displayName);
+        setDisplayName(accountDisplayName(saved));
         setHouseholdSize(saved.householdSize);
         setListReminders(saved.listReminders);
         setLocation(saved.location);
@@ -100,6 +102,11 @@ export function AccountScreen({ navigation }: Props) {
     }
   };
 
+  const editDisplayName = () => {
+    setExpandedSection('personal');
+    requestAnimationFrame(() => displayNameInputRef.current?.focus());
+  };
+
   return (
     <SafeAreaView edges={['top']} style={styles.screen}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
@@ -109,7 +116,12 @@ export function AccountScreen({ navigation }: Props) {
             <AvatarImage height={72} style={styles.avatarImage} width={72} />
           </View>
           <View style={styles.profileCopy}>
-            <View style={styles.nameRow}><Text accessibilityRole="header" numberOfLines={1} style={styles.name}>{displayName}</Text><PencilIcon height={20} width={20} /></View>
+            <View style={styles.nameRow}>
+              <Text accessibilityRole="header" numberOfLines={1} style={styles.name}>{displayName}</Text>
+              <Pressable accessibilityLabel="Edit display name" accessibilityRole="button" hitSlop={8} onPress={editDisplayName}>
+                <PencilIcon height={20} width={20} />
+              </Pressable>
+            </View>
             <View style={styles.profileTags}><Text style={styles.profileTag}>{pronouns}</Text><Text style={styles.profileTag}>{location}</Text></View>
           </View>
         </View>
@@ -133,7 +145,7 @@ export function AccountScreen({ navigation }: Props) {
               </Pressable>
               {expandedSection === section.id && section.id === 'personal' ? (
                 <View style={styles.sectionContent}>
-                  <ProfileField label="Display name" onChangeText={setDisplayName} value={displayName} />
+                  <ProfileField inputRef={displayNameInputRef} label="Display name" onChangeText={setDisplayName} value={displayName} />
                   <ProfileField label="Pronouns" onChangeText={setPronouns} value={pronouns} />
                   <ProfileField label="Home location" onChangeText={setLocation} value={location} />
                 </View>
@@ -169,7 +181,12 @@ export function AccountScreen({ navigation }: Props) {
           ))}
         </View>
 
-        <Pressable accessibilityRole="button" style={styles.feedbackCard}>
+        <Pressable
+          accessibilityLabel="Open feedback survey"
+          accessibilityRole="link"
+          onPress={() => void Linking.openURL(FEEDBACK_SURVEY_URL)}
+          style={styles.feedbackCard}
+        >
           <ListsControl height={37} width={40} />
           <Text style={styles.feedbackText}>Feedback Survey</Text>
           <BackIcon height={20} style={styles.rightArrow} width={20} />
@@ -195,8 +212,8 @@ function ImpactIcon({ type }: { type: 'dollar' | 'time' }) {
   );
 }
 
-function ProfileField({ label, onChangeText, value }: { label: string; onChangeText: (value: string) => void; value: string }) {
-  return <View style={styles.field}><Text style={styles.fieldLabel}>{label}</Text><TextInput accessibilityLabel={label} onChangeText={onChangeText} style={styles.fieldInput} value={value} /></View>;
+function ProfileField({ inputRef, label, onChangeText, value }: { inputRef?: React.RefObject<TextInput | null>; label: string; onChangeText: (value: string) => void; value: string }) {
+  return <View style={styles.field}><Text style={styles.fieldLabel}>{label}</Text><TextInput accessibilityLabel={label} onChangeText={onChangeText} ref={inputRef} style={styles.fieldInput} value={value} /></View>;
 }
 
 function NotificationToggle({ label, onValueChange, value }: { label: string; onValueChange: (value: boolean) => void; value: boolean }) {

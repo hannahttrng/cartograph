@@ -14,6 +14,13 @@ export interface AccountPreferences {
   stores: string[];
 }
 
+export const accountDisplayName = (
+  preferences: AccountPreferences | null,
+): string => {
+  const displayName = preferences?.displayName.trim();
+  return !displayName || displayName === 'Carter CartCart' ? 'User' : displayName;
+};
+
 export async function loadAccountPreferences(): Promise<AccountPreferences | null> {
   const serializedPreferences = await AsyncStorage.getItem(STORAGE_KEY);
   if (!serializedPreferences) return null;

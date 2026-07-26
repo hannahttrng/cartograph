@@ -1,6 +1,6 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import RoutesIcon from '../../../assets/routes-nav.svg';
+import MapPinIcon from '../../../assets/svg icons/cartograph-18/Group 70.svg';
 import ExpandIcon from '../../../assets/svg icons/keyboard_arrow_up.svg';
 import { colors, radius, spacing, typography } from '../../theme';
 import type { RouteCandidateResult, RouteProductSummary } from '../../types/api';
@@ -52,9 +52,14 @@ export function RouteCard({
           onPress={onToggle}
           style={({ pressed }) => [styles.routeHeading, pressed && styles.pressed]}
         >
-          <Text ellipsizeMode="tail" numberOfLines={1} style={styles.routeName}>
-            {storeSequence}
-          </Text>
+          <View style={styles.routeTitleCopy}>
+            <Text numberOfLines={1} style={styles.routeRank}>
+              #{rank} {rank === 1 ? 'Best overall' : 'Ranked route'} · Cost score {Math.round(route.score)}
+            </Text>
+            <Text ellipsizeMode="tail" numberOfLines={1} style={styles.routeName}>
+              {storeSequence}
+            </Text>
+          </View>
           <View
             accessibilityElementsHidden
             importantForAccessibility="no-hide-descendants"
@@ -70,9 +75,9 @@ export function RouteCard({
           style={({ pressed }) => [styles.mapButton, pressed && styles.mapButtonPressed]}
         >
           <View style={styles.mapIcon}>
-            <RoutesIcon height={15} width={16} />
+            <MapPinIcon height={17} width={12} />
           </View>
-          <Text style={styles.mapButtonText}>Open Map</Text>
+          <Text style={styles.mapButtonText}>View route</Text>
         </Pressable>
       </View>
 
@@ -97,6 +102,14 @@ export function RouteCard({
 
       {isExpanded ? (
         <View style={styles.details}>
+          <Text style={styles.scoreNote}>Backend cost score {route.score.toFixed(2)} · lower is better</Text>
+          <View style={styles.scoreBreakdown}>
+            <Text style={styles.scoreComponent}>Products ${route.scoreComponents.productPrice.toFixed(2)}</Text>
+            <Text style={styles.scoreComponent}>Distance ${route.scoreComponents.distanceCost.toFixed(2)}</Text>
+            <Text style={styles.scoreComponent}>Time ${route.scoreComponents.timeCost.toFixed(2)}</Text>
+            <Text style={styles.scoreComponent}>Stores ${route.scoreComponents.storeCost.toFixed(2)}</Text>
+            <Text style={styles.scoreComponent}>Preferences ${route.scoreComponents.modifierPenalty.toFixed(2)}</Text>
+          </View>
           <Text accessibilityRole="header" style={styles.detailsTitle}>Store order</Text>
           {route.stores.map((store, storeIndex) => (
             <View key={store.id} style={styles.stop}>
@@ -198,6 +211,17 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 14,
   },
+  routeTitleCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  routeRank: {
+    ...typography.caption,
+    color: colors.primary,
+    fontFamily: 'Monda_700Bold',
+    fontSize: 10,
+    marginBottom: 1,
+  },
   expandIcon: {
     alignItems: 'center',
     height: 28,
@@ -224,10 +248,10 @@ const styles = StyleSheet.create({
   mapIcon: {
     alignItems: 'center',
     backgroundColor: colors.surface,
-    borderRadius: 4,
+    borderRadius: 12,
     height: 23,
     justifyContent: 'center',
-    width: 25,
+    width: 23,
   },
   mapButtonText: {
     ...typography.caption,
@@ -274,6 +298,25 @@ const styles = StyleSheet.create({
   detailsTitle: {
     ...typography.bodyStrong,
     color: colors.text,
+    marginTop: spacing.sm,
+  },
+  scoreNote: {
+    ...typography.caption,
+    color: colors.textMuted,
+  },
+  scoreBreakdown: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+    marginTop: spacing.xs,
+  },
+  scoreComponent: {
+    ...typography.caption,
+    backgroundColor: colors.backgroundMuted,
+    borderRadius: radius.sm,
+    color: colors.text,
+    paddingHorizontal: spacing.xs,
+    paddingVertical: 3,
   },
   stop: {
     alignItems: 'flex-start',

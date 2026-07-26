@@ -161,21 +161,27 @@ export function SavedListsScreen({ navigation }: Props) {
                 <ListIcon iconName={iconNameForList(list, index)} size={38} />
                 <View style={styles.listCopy}>
                   <Text style={styles.listName}>{list.name}</Text>
-                  <Text style={styles.listMeta}>{list.items.length} {list.items.length === 1 ? 'item' : 'items'} · {list.active ? 'Active' : 'Inactive'}</Text>
+                  <Text style={styles.listMeta}>{list.items.length} {list.items.length === 1 ? 'item' : 'items'} · {list.active ? 'Included in routes' : 'Saved for later'}</Text>
                 </View>
                 <DisclosureArrow direction="right" style={styles.arrow} />
               </Pressable>
               <Pressable
-                accessibilityLabel={`${list.name} active`}
-                accessibilityRole="switch"
-                accessibilityState={{ checked: list.active, busy: busyListIds.has(list.id), disabled: busyListIds.has(list.id) }}
+                accessibilityLabel={`${list.active ? 'Remove' : 'Include'} ${list.name} ${list.active ? 'from' : 'in'} route planning`}
+                accessibilityRole="button"
+                accessibilityState={{ busy: busyListIds.has(list.id), disabled: busyListIds.has(list.id), selected: list.active }}
                 disabled={busyListIds.has(list.id)}
                 onPress={() => void toggleActive(list)}
-                style={[styles.activeSwitch, list.active && styles.activeSwitchOn]}
+                style={[styles.routePlanButton, list.active && styles.routePlanButtonSelected]}
               >
-                <View style={[styles.switchThumb, list.active && styles.switchThumbOn]} />
+                {busyListIds.has(list.id) ? (
+                  <ActivityIndicator color={list.active ? colors.textInverse : colors.primary} size="small" />
+                ) : (
+                  <Text style={[styles.routePlanButtonText, list.active && styles.routePlanButtonTextSelected]}>
+                    {list.active ? 'Included' : 'Include'}
+                  </Text>
+                )}
               </Pressable>
-              <View style={styles.switchSpacer} />
+              <View style={styles.actionSpacer} />
             </View>
             {toggleErrors[list.id] ? <Text accessibilityLiveRegion="assertive" style={styles.rowError}>{toggleErrors[list.id]}</Text> : null}
           </View>
@@ -200,11 +206,11 @@ const styles = StyleSheet.create({
   listCopy: { flex: 1, marginHorizontal: spacing.sm },
   listName: typography.bodyStrong,
   listMeta: { ...typography.caption, marginTop: spacing.xxs },
-  switchSpacer: { width: spacing.md },
-  activeSwitch: { backgroundColor: colors.borderStrong, borderRadius: 14, height: 28, justifyContent: 'center', padding: 2, width: 48 },
-  activeSwitchOn: { backgroundColor: colors.primaryMuted },
-  switchThumb: { backgroundColor: colors.surface, borderRadius: 12, height: 24, width: 24 },
-  switchThumbOn: { alignSelf: 'flex-end', backgroundColor: colors.primary },
+  actionSpacer: { width: spacing.md },
+  routePlanButton: { alignItems: 'center', borderColor: colors.primary, borderRadius: radius.sm, borderWidth: 1, justifyContent: 'center', minHeight: 36, minWidth: 72, paddingHorizontal: spacing.sm },
+  routePlanButtonSelected: { backgroundColor: colors.primary },
+  routePlanButtonText: { ...typography.caption, color: colors.primary, fontFamily: 'Monda_700Bold' },
+  routePlanButtonTextSelected: { color: colors.textInverse },
   arrow: { marginLeft: spacing.xs },
   statePanel: { alignItems: 'center', justifyContent: 'center', minHeight: 220, padding: spacing.lg },
   stateText: { ...typography.body, color: colors.textMuted, marginTop: spacing.sm, textAlign: 'center' },

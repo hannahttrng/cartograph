@@ -1,4 +1,3 @@
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -14,7 +13,9 @@ type ActiveTab = 'home' | 'lists' | 'stores' | 'routes' | 'carter';
 
 interface AppBottomNavProps {
   active: ActiveTab;
-  navigation: NativeStackNavigationProp<RootStackParamList>;
+  navigation: {
+    navigate: (route: 'Home' | 'SavedLists' | 'NearbyStores' | 'Routes' | 'AiAssistant') => void;
+  };
 }
 
 const tabs = [
@@ -44,9 +45,13 @@ export function AppBottomNav({ active, navigation }: AppBottomNavProps) {
             accessibilityState={{ selected: isActive }}
             key={tab.key}
             onPress={() => navigation.navigate(tab.route)}
-            style={[styles.tab, isActive && styles.tabActive]}
+            style={({ pressed }) => [
+              styles.tab,
+              isActive && styles.tabActive,
+              pressed && styles.tabPressed,
+            ]}
           >
-            <tab.Icon height={37} width={tab.width} />
+            <tab.Icon color={isActive ? colors.textInverse : colors.text} height={37} width={tab.width} />
           </Pressable>
         );
       })}
@@ -55,7 +60,11 @@ export function AppBottomNav({ active, navigation }: AppBottomNavProps) {
         accessibilityRole="button"
         accessibilityState={{ selected: active === 'carter' }}
         onPress={() => navigation.navigate('AiAssistant')}
-        style={[styles.carter, active === 'carter' && styles.carterActive]}
+        style={({ pressed }) => [
+          styles.carter,
+          active === 'carter' && styles.carterActive,
+          pressed && styles.carterPressed,
+        ]}
       >
         <CarterControl height={52} preserveAspectRatio="xMidYMid meet" width="100%" />
       </Pressable>
@@ -67,6 +76,8 @@ const styles = StyleSheet.create({
   bar: { alignItems: 'center', backgroundColor: colors.surface, borderTopColor: colors.border, borderTopWidth: StyleSheet.hairlineWidth, flexDirection: 'row', gap: 4, height: 64, justifyContent: 'center', paddingHorizontal: 8 },
   tab: { alignItems: 'center', borderRadius: 8, height: 41, justifyContent: 'center', width: 40 },
   tabActive: { backgroundColor: colors.primary },
-  carter: { alignItems: 'center', borderColor: 'transparent', borderRadius: 10, borderWidth: 1, flex: 1, height: 54, justifyContent: 'center', marginLeft: 2, maxWidth: 118, minWidth: 76 },
-  carterActive: { backgroundColor: colors.primaryMuted, borderColor: colors.primary },
+  tabPressed: { backgroundColor: '#E3E5E3' },
+  carter: { alignItems: 'center', borderRadius: 10, flex: 1, height: 54, justifyContent: 'center', marginLeft: 2, maxWidth: 118, minWidth: 76 },
+  carterActive: { backgroundColor: 'rgba(20, 124, 54, 0.16)' },
+  carterPressed: { backgroundColor: '#E3E5E3' },
 });

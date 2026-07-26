@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import ExpandIcon from '../../../assets/svg icons/keyboard_arrow_up.svg';
@@ -6,11 +5,20 @@ import { colors, radius, spacing, typography } from '../../theme';
 import type { MapRouteResult } from '../../types/maps';
 
 interface RouteDirectionsPanelProps {
+  isExpanded: boolean;
+  onExpandedChange: (expanded: boolean) => void;
+  onSelectDirection: (sequence: number) => void;
   result: MapRouteResult;
+  selectedSequence: number | null;
 }
 
-export function RouteDirectionsPanel({ result }: RouteDirectionsPanelProps) {
-  const [isExpanded, setIsExpanded] = useState(true);
+export function RouteDirectionsPanel({
+  isExpanded,
+  onExpandedChange,
+  onSelectDirection,
+  result,
+  selectedSequence,
+}: RouteDirectionsPanelProps) {
   const totalSummary = `${result.totalDistanceMiles.toFixed(1)} miles, ${Math.round(result.totalTimeMinutes)} minutes`;
 
   return (
@@ -19,7 +27,7 @@ export function RouteDirectionsPanel({ result }: RouteDirectionsPanelProps) {
         accessibilityLabel={isExpanded ? 'Collapse directions' : 'Expand directions'}
         accessibilityRole="button"
         accessibilityState={{ expanded: isExpanded }}
-        onPress={() => setIsExpanded((current) => !current)}
+        onPress={() => onExpandedChange(!isExpanded)}
         style={({ pressed }) => [styles.header, pressed && styles.pressed]}
       >
         <View style={styles.headerText}>
@@ -45,7 +53,18 @@ export function RouteDirectionsPanel({ result }: RouteDirectionsPanelProps) {
           style={styles.directionScroll}
         >
           {result.directions.map((direction) => (
-            <View key={`${direction.sequence}-${direction.text}`} style={styles.directionRow}>
+            <Pressable
+              accessibilityLabel={`Direction ${direction.sequence}: ${direction.text}`}
+              accessibilityRole="button"
+              accessibilityState={{ selected: selectedSequence === direction.sequence }}
+              key={`${direction.sequence}-${direction.text}`}
+              onPress={() => onSelectDirection(direction.sequence)}
+              style={({ pressed }) => [
+                styles.directionRow,
+                selectedSequence === direction.sequence && styles.directionRowSelected,
+                pressed && styles.pressed,
+              ]}
+            >
               <Text style={styles.directionNumber}>{direction.sequence}</Text>
               <View style={styles.directionContent}>
                 <Text style={styles.directionText}>{direction.text}</Text>
@@ -53,7 +72,7 @@ export function RouteDirectionsPanel({ result }: RouteDirectionsPanelProps) {
                   {direction.distanceMiles.toFixed(2)} mi - {direction.timeMinutes.toFixed(1)} min
                 </Text>
               </View>
-            </View>
+            </Pressable>
           ))}
         </ScrollView>
       ) : null}
@@ -113,6 +132,11 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     flexDirection: 'row',
     paddingTop: spacing.sm,
+  },
+  directionRowSelected: {
+    backgroundColor: colors.primaryMuted,
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.xs,
   },
   directionNumber: {
     backgroundColor: colors.primaryMuted,
