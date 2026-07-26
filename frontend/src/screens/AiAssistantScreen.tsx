@@ -12,6 +12,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { askCarter, importRecipe, toApiError } from '../api';
+import { DesignIcon } from '../components/common';
 import type { RootStackParamList } from '../navigation/types';
 import type {
   AssistantChatMessage,
@@ -50,16 +51,13 @@ export function AiAssistantScreen({ navigation }: Props) {
     try {
       if (carterMode === 'chat') {
         const history = chatMessages.slice(-12);
-        setChatMessages((currentMessages) => [
-          ...currentMessages,
-          { role: 'user', content: source },
-        ]);
-        setRecipeSource('');
         const response = await askCarter({ message: source, messages: history });
         setChatMessages((currentMessages) => [
           ...currentMessages,
+          { role: 'user', content: source },
           { role: 'assistant', content: response.message },
         ]);
+        setRecipeSource('');
       } else {
         const importedRecipe = await importRecipe({ source, sourceType });
         setResult(importedRecipe);
@@ -91,7 +89,7 @@ export function AiAssistantScreen({ navigation }: Props) {
   };
 
   return (
-    <SafeAreaView edges={['bottom']} style={styles.screen}>
+    <SafeAreaView edges={['top', 'bottom']} style={styles.screen}>
       <ScrollView
         bounces
         contentContainerStyle={styles.content}
@@ -177,7 +175,7 @@ export function AiAssistantScreen({ navigation }: Props) {
           onPress={() => void handleSubmit()}
           style={({ pressed }) => [styles.button, (pressed || isSubmitting) && styles.buttonPressed]}
         >
-          {isSubmitting ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.buttonText}>{carterMode === 'list' ? 'Create shopping list' : 'Ask Carter'}</Text>}
+          {isSubmitting ? <ActivityIndicator color="#FFFFFF" /> : <View style={styles.buttonContent}><Text style={styles.buttonText}>{carterMode === 'list' ? 'Create shopping list' : 'Ask Carter'}</Text><DesignIcon name={carterMode === 'list' ? 'plus' : 'send'} size={20} /></View>}
         </Pressable>
 
         {errorMessage ? (
@@ -318,6 +316,7 @@ const styles = StyleSheet.create({
     minHeight: 48,
     paddingHorizontal: 16,
   },
+  buttonContent: { alignItems: 'center', flexDirection: 'row', gap: 10 },
   buttonPressed: {
     opacity: 0.65,
   },

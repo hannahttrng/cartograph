@@ -3,11 +3,15 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { AccountScreen } from '../screens/AccountScreen';
 import { AiAssistantScreen } from '../screens/AiAssistantScreen';
 import { HomeScreen } from '../screens/HomeScreen';
+import { ImportRecipesScreen } from '../screens/ImportRecipesScreen';
+import LoginScreen from '../screens/LoginScreen';
 import { MapScreen } from '../screens/MapScreen';
 import { NearbyDealsScreen } from '../screens/NearbyDealsScreen';
+import { NearbyStoresScreen } from '../screens/NearbyStoresScreen';
 import { NewShoppingListScreen } from '../screens/NewShoppingListScreen';
 import { RouteResultsScreen } from '../screens/RouteResultsScreen';
 import { ShoppingListScreen } from '../screens/ShoppingListScreen';
+import { SavedListsScreen } from '../screens/SavedListsScreen';
 import type { RootStackParamList } from './types';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -15,28 +19,32 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 export function RootNavigator() {
   return (
     <Stack.Navigator initialRouteName="Home">
-      <Stack.Screen component={HomeScreen} name="Home" options={{ title: 'Cartograph' }} />
+      <Stack.Screen component={HomeScreen} name="Home" options={{ headerShown: false }} />
+      <Stack.Screen component={LoginScreen} name="Login" options={{ headerShown: false }} />
+      <Stack.Screen component={ImportRecipesScreen} name="ImportRecipes" options={{ headerShown: false }} />
+      <Stack.Screen component={NearbyStoresScreen} name="NearbyStores" options={{ headerShown: false }} />
+      <Stack.Screen component={SavedListsScreen} name="SavedLists" options={{ headerShown: false }} />
       <Stack.Screen
         component={ShoppingListScreen}
         name="ShoppingList"
-        options={{ title: 'Shopping List' }}
+        options={{ headerShown: false }}
       />
       <Stack.Screen
         component={NewShoppingListScreen}
         name="NewShoppingList"
-        options={{ title: 'New List' }}
+        options={{ headerShown: false }}
       />
       <Stack.Screen
         component={AiAssistantScreen}
         name="AiAssistant"
-        options={{ title: 'Recipe Import' }}
+        options={{ headerShown: false }}
       />
       <Stack.Screen
         component={NearbyDealsScreen}
         name="NearbyDeals"
-        options={{ title: 'Nearby Deals' }}
+        options={{ headerShown: false }}
       />
-      <Stack.Screen component={AccountScreen} name="Account" options={{ title: 'Account' }} />
+      <Stack.Screen component={AccountScreen} name="Account" options={{ headerShown: false }} />
       <Stack.Screen
         component={MapScreen}
         name="Map"
@@ -50,7 +58,7 @@ export function RootNavigator() {
       <Stack.Screen
         component={RouteResultsScreen}
         name="RouteResults"
-        options={{ title: 'Best Routes' }}
+        options={{ headerShown: false }}
       />
     </Stack.Navigator>
   );

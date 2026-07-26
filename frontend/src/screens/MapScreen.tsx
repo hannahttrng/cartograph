@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { getMap, toApiError } from '../api';
 import { RouteMap } from '../components/map/RouteMap';
@@ -12,6 +13,7 @@ import { styles } from './MapScreen.styles';
 type Props = NativeStackScreenProps<RootStackParamList, 'Map'>;
 
 export function MapScreen({ route }: Props) {
+  const { bottom } = useSafeAreaInsets();
   const { route: selectedRoute, routeId } = route.params;
   const fallbackMapData = useMemo<MapRouteData>(
     () => ({
@@ -74,7 +76,7 @@ export function MapScreen({ route }: Props) {
       ) : null}
 
       {errorMessage ? (
-        <View style={styles.errorState}>
+        <View style={[styles.errorState, { bottom: bottom + 16 }]}>
           <Text accessibilityLiveRegion="assertive" numberOfLines={2} style={styles.errorText}>
             {errorMessage}
           </Text>

@@ -2,6 +2,10 @@ import type { Route } from '../types/models';
 
 export type RootStackParamList = {
   Home: undefined;
+  Login: undefined;
+  ImportRecipes: undefined;
+  NearbyStores: undefined;
+  SavedLists: undefined;
   ShoppingList: undefined;
   NewShoppingList:
     | {
