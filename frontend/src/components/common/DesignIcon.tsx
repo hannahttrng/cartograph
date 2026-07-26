@@ -12,6 +12,7 @@ import SearchIcon from '../../../assets/svg icons/Search.svg';
 import SendIcon from '../../../assets/svg icons/send.svg';
 import ShoppingBagIcon from '../../../assets/svg icons/Shopping bag.svg';
 import StarIcon from '../../../assets/svg icons/Star.svg';
+import StarFilledIcon from '../../../assets/svg icons/Star-2.svg';
 import UserIcon from '../../../assets/svg icons/User.svg';
 
 const icons = {
@@ -27,6 +28,7 @@ const icons = {
   send: SendIcon,
   shoppingBag: ShoppingBagIcon,
   star: StarIcon,
+  starFilled: StarFilledIcon,
   user: UserIcon,
 } as const;
 

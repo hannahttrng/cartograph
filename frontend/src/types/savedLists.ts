@@ -1,5 +1,8 @@
 export interface SavedShoppingListItem {
+  checked?: boolean;
   name: string;
+  quantity?: number;
+  unit?: string;
   unitPrice: number;
 }
 

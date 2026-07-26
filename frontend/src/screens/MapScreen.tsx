@@ -17,7 +17,7 @@ export function MapScreen({ route }: Props) {
   const { route: selectedRoute, routeId } = route.params;
   const fallbackMapData = useMemo<MapRouteData>(
     () => ({
-      routeId,
+      routeId: routeId ?? 'local-preview',
       stores: selectedRoute.stores,
       distance: selectedRoute.distance,
       time: selectedRoute.time,
@@ -31,10 +31,17 @@ export function MapScreen({ route }: Props) {
     [routeId, selectedRoute],
   );
   const [mapData, setMapData] = useState<MapRouteData>(fallbackMapData);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(Boolean(routeId));
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const loadMap = useCallback(async () => {
+    if (!routeId) {
+      setMapData(fallbackMapData);
+      setErrorMessage(null);
+      setIsLoading(false);
+      return;
+    }
+
     setIsLoading(true);
     setErrorMessage(null);
 

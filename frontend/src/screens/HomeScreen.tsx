@@ -1,6 +1,6 @@
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { useState } from 'react';
 import {
-  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -15,8 +15,13 @@ import ImportRecipeIcon from '../../assets/svg icons/Group 14.svg';
 import BuildListIcon from '../../assets/svg icons/Group 15.svg';
 import HeaderBackground from '../../assets/svg icons/Rectangle 1.svg';
 import CarterLogo from '../../assets/svg icons/carter_home.svg';
-import { AppBottomNav, DesignIcon } from '../components/common';
+import { AppBottomNav, DesignIcon, DisclosureArrow, GreetingHeader } from '../components/common';
+import { MapPreview } from '../components/map/MapPreview';
+import { mockLists } from '../mock/mockLists';
+import { mockStores } from '../mock/mockStores';
+import { mockUser } from '../mock/mockUser';
 import type { RootStackParamList } from '../navigation/types';
+import { colors, radius, shadows } from '../theme';
 import type { Route } from '../types/models';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Home'>;
@@ -43,19 +48,19 @@ const quickActions: Array<{
   },
 ];
 
-const recentActivity = [
-  { name: 'Weekly Groceries', detail: 'Yesterday', savings: '$19.52' },
-  { name: 'Trader Joes Run', detail: '2 days ago', savings: '$20.53' },
-  { name: 'Weekly Groceries', detail: 'Yesterday', savings: '$19.52' },
-];
+const recentActivity = mockLists.map((list, index) => ({
+  detail: index === 0 ? 'Yesterday' : `${index + 1} days ago`,
+  name: list.title,
+  savings: `$${(19.52 - index * 2.75).toFixed(2)}`,
+}));
 
 const mapPreviewRoute: Route = {
   stores: [
     {
-      name: 'Redlands Grocery Stop',
-      address: 'Downtown Redlands, CA',
-      latitude: 34.0571,
-      longitude: -117.1817,
+      name: mockStores[0].name,
+      address: mockStores[0].address,
+      latitude: mockStores[0].latitude,
+      longitude: mockStores[0].longitude,
     },
   ],
   products: [],
@@ -66,11 +71,18 @@ const mapPreviewRoute: Route = {
 
 export function HomeScreen({ navigation }: Props) {
   const { top } = useSafeAreaInsets();
+  const [searchQuery, setSearchQuery] = useState('');
+  const displayName = mockUser?.name ?? 'User';
+
+  const submitSearch = () => {
+    const item = searchQuery.trim();
+    navigation.navigate('NewShoppingList', item ? { initialItems: [item], title: 'New List' } : undefined);
+  };
 
   return (
     <SafeAreaView edges={[]} style={styles.screen}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <View style={[styles.hero, { height: 161 + top }]}>
+        <View style={[styles.hero, { height: 198 + top }]}>
           <HeaderBackground height="100%" preserveAspectRatio="none" style={StyleSheet.absoluteFill} width="100%" />
           <View style={[styles.heroContent, { paddingTop: 28 + top }]}>
             <View style={styles.heroTopRow}>
@@ -92,14 +104,18 @@ export function HomeScreen({ navigation }: Props) {
                 <DesignIcon name="person" size={23} />
               </Pressable>
             </View>
+            <View style={styles.greeting}><GreetingHeader displayName={displayName} /></View>
             <View style={styles.searchBar}>
               <DesignIcon name="search" size={18} />
               <TextInput
                 accessibilityLabel="Search ingredients or recipes"
-                editable={false}
+                onChangeText={setSearchQuery}
+                onSubmitEditing={submitSearch}
                 placeholder="Search ingredients, recipes, etc."
                 placeholderTextColor="#77847D"
+                returnKeyType="search"
                 style={styles.searchInput}
+                value={searchQuery}
               />
             </View>
           </View>
@@ -122,19 +138,17 @@ export function HomeScreen({ navigation }: Props) {
         <View style={[styles.sectionHeader, styles.mapHeader]}>
           <Text accessibilityRole="header" style={styles.sectionTitle}>Map Preview</Text>
         </View>
-        <Pressable
-          accessibilityLabel="Open Redlands map full screen"
-          accessibilityRole="button"
+        <View style={styles.mapPreview}>
+          <MapPreview
           onPress={() =>
             navigation.navigate('Map', {
               route: mapPreviewRoute,
-              routeId: 'home-map-preview',
             })
           }
-          style={({ pressed }) => [styles.mapPreview, pressed && styles.pressed]}
-        >
-          <Image resizeMode="cover" source={require('../../assets/images/redlands-map.png')} style={styles.mapImage} />
-        </Pressable>
+          stores={mockStores}
+          userLocation={mockUser.location}
+          />
+        </View>
 
         <View style={styles.sectionHeader}>
           <Text accessibilityRole="header" style={styles.sectionTitle}>Recent Activity</Text>
@@ -150,7 +164,7 @@ export function HomeScreen({ navigation }: Props) {
                 <Text style={styles.activityName}>{activity.name}</Text>
                 <Text style={styles.activityDetail}>{activity.detail} · Saved {activity.savings}</Text>
               </View>
-              <Text style={styles.chevron}>›</Text>
+              <DisclosureArrow direction="right" style={styles.chevron} />
             </View>
           ))}
         </View>
@@ -174,6 +188,7 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   heroContent: { paddingHorizontal: 27 },
+  greeting: { marginTop: 7 },
   heroTopRow: {
     alignItems: 'center',
     flexDirection: 'row',
@@ -226,16 +241,22 @@ const styles = StyleSheet.create({
   },
   quickActionRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingHorizontal: 51,
-    paddingTop: 56,
+    gap: 12,
+    paddingHorizontal: 24,
+    paddingTop: 24,
   },
   quickAction: {
     alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    borderWidth: 1,
     flex: 1,
-    maxWidth: 94,
-    minHeight: 102,
-    paddingHorizontal: 2,
+    justifyContent: 'center',
+    minHeight: 112,
+    paddingHorizontal: 8,
+    paddingVertical: 10,
+    ...shadows.card,
   },
   actionIconShell: {
     alignItems: 'center',
@@ -264,17 +285,10 @@ const styles = StyleSheet.create({
   },
   mapHeader: { marginTop: 8 },
   mapPreview: {
-    aspectRatio: 392 / 251,
-    borderRadius: 18,
     marginHorizontal: 27,
     marginTop: 10,
-    overflow: 'hidden',
   },
-  mapImage: { height: '100%', width: '100%' },
   chevron: {
-    color: '#7D8980',
-    fontSize: 26,
-    lineHeight: 28,
     marginLeft: 12,
   },
   hideAll: {
