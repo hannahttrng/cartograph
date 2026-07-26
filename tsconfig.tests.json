@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "resolveJsonModule": true,
+    "types": ["jest", "node"]
+  },
+  "include": [
+    "frontend/src/**/*.ts",
+    "frontend/src/**/*.tsx",
+    "tests/frontend/**/*.ts",
+    "tests/frontend/**/*.tsx",
+    "tests/fixtures/**/*.json"
+  ]
+}

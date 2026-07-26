@@ -1,65 +1,135 @@
-import type { Route, Store } from './models';
+import type { Store } from './models';
 
-/**
- * Eric's endpoint documentation does not yet define the fields in list
- * request/response bodies. These interfaces keep those payloads typed as JSON
- * objects without imposing a frontend-owned backend contract. They can be
- * extended when the backend publishes the final list schema.
- */
-export interface CreateListRequest {
-  readonly [key: string]: unknown;
+export type EntityId = number;
+
+export interface CatalogTag {
+  readonly tag: string;
+  readonly defaultUnit: string;
+  readonly defaultQuantity: number;
+  readonly products: readonly EntityId[];
 }
 
-export interface UpdateListRequest {
-  readonly [key: string]: unknown;
+export interface ShoppingListItemInput {
+  readonly tag: string;
+  readonly modifiers?: readonly string[];
+  readonly unit?: string | null;
+  readonly quantity?: number | null;
 }
 
-export interface ListResponse {
-  readonly [key: string]: unknown;
+export interface ShoppingListItem {
+  readonly tag: string;
+  readonly modifiers: readonly string[];
+  readonly unit: string;
+  readonly quantity: number;
 }
 
-export interface GetRoutesRequest {
-  readonly items: string[];
-  readonly listId?: string;
-  readonly latitude?: number;
-  readonly longitude?: number;
-  readonly limit?: number;
-  readonly catalog?: RouteHydrationCatalog;
+export interface ShoppingListCreateRequest {
+  readonly name?: string | null;
+  readonly items: readonly ShoppingListItemInput[];
+  readonly active?: boolean;
 }
 
-export type GetRoutesResponse = Route[];
-
-export interface RouteHydrationCatalog {
-  readonly stores: Readonly<Record<number, Store>>;
-  readonly products: Readonly<Record<number, import('./models').Product>>;
+export interface ShoppingListReplaceRequest {
+  readonly name: string;
+  readonly items: readonly ShoppingListItemInput[];
+  readonly active?: boolean;
 }
 
-export interface RouteCandidateWire {
-  readonly stores: number[];
-  readonly products: number[];
+export interface ShoppingListNameUpdateRequest {
+  readonly name: string;
+}
+
+export interface ShoppingListActiveUpdateRequest {
+  readonly active: boolean;
+}
+
+export interface ShoppingListResponse {
+  readonly id: EntityId;
+  readonly name: string;
+  readonly items: readonly ShoppingListItem[];
+  readonly active: boolean;
+}
+
+export interface RouteStoreSummary {
+  readonly id: EntityId;
+  readonly name: string;
+  readonly address: string;
+  readonly latitude: number | null;
+  readonly longitude: number | null;
+}
+
+export interface RouteProductSummary {
+  readonly id: EntityId;
+  readonly name: string;
+  readonly store: EntityId;
+  readonly unit: string;
+  readonly modifiers: readonly string[];
+  readonly selectionPrice: number;
+}
+
+export interface RouteItemSelection extends ShoppingListItem {
+  readonly product: EntityId | null;
+}
+
+export interface RouteScoreComponents {
+  readonly productPrice: number;
+  readonly distanceCost: number;
+  readonly timeCost: number;
+  readonly storeCost: number;
+  readonly modifierPenalty: number;
+}
+
+export type RouteErrorCode = 'PARTIAL_ITEM_MATCH';
+
+export interface RouteCandidateResult {
+  readonly id: EntityId;
+  readonly stores: readonly RouteStoreSummary[];
+  readonly products: readonly RouteProductSummary[];
+  readonly selections: readonly RouteItemSelection[];
   readonly distance: number;
   readonly time: number;
   readonly score: number;
-  readonly productTags: Readonly<Record<number, string[]>>;
-  readonly selections: ReadonlyArray<{ readonly tag: string; readonly product: number | null }>;
   readonly productPrice: number;
-  readonly matchedTagCount: number;
-  readonly scoreComponents: {
-    readonly productPrice: number;
-    readonly distanceCost: number;
-    readonly timeCost: number;
-    readonly storeCost: number;
-  };
-  readonly errorCode?: 'PARTIAL_TAG_MATCH' | null;
+  readonly matchedItemCount: number;
+  readonly scoreComponents: RouteScoreComponents;
+  readonly errorCode: RouteErrorCode | null;
 }
 
-export interface RouteOptimizationResponseWire {
-  readonly candidates: RouteCandidateWire[];
-  readonly status: 'OPTIMAL' | 'FEASIBLE_TIMEOUT';
-  readonly requestedLimit: number;
-  readonly provenPrefixCount: number;
-  readonly elapsedSeconds: number;
-  readonly timeoutSeconds: number;
+export interface RouteCandidatesResponse {
+  readonly generation: number;
+  readonly candidates: readonly RouteCandidateResult[];
+}
+
+export type RouteOptimizationStatus =
+  | 'OPTIMAL'
+  | 'HEURISTIC'
+  | 'FEASIBLE_TIMEOUT';
+
+export type RouteOptimizationErrorCode =
+  | 'NO_ELIGIBLE_PRODUCTS'
+  | 'MATRIX_UNAVAILABLE'
+  | 'UNIT_CONVERSION_FAILED'
+  | 'OPTIMIZATION_FAILED';
+
+export type RouteCalculationStatus =
+  | 'IDLE'
+  | 'RUNNING'
+  | 'SUCCEEDED'
+  | 'FAILED';
+
+export interface RouteCalculationResponse {
+  readonly generation: number;
+  readonly status: RouteCalculationStatus;
+  readonly activeListCount: number;
+  readonly itemCount: number;
+  readonly resultCount: number;
+  readonly optimizerStatus: RouteOptimizationStatus | null;
+  readonly startedAt: number | null;
+  readonly completedAt: number | null;
+  readonly elapsedSeconds: number | null;
+  readonly timeoutSeconds: number | null;
+  readonly errorCode: RouteOptimizationErrorCode | null;
+  readonly detail: string | null;
 }
 
 export interface GetMapResponse {
@@ -106,5 +176,6 @@ export interface AssistantChatResponse {
 export interface ApiErrorBody {
   readonly message?: string;
   readonly detail?: string;
+  readonly errorCode?: string | null;
   readonly [key: string]: unknown;
 }

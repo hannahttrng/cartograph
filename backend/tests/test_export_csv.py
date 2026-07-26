@@ -8,7 +8,8 @@ from backend.tools.export_csv import build_parser, export_catalog_to_csv, main
 
 
 EXPECTED_HEADERS = {
-    "stores": ["id", "name", "address"],
+    "tags": ["tag", "default_unit", "default_quantity"],
+    "stores": ["id", "name", "address", "latitude", "longitude"],
     "products": [
         "id",
         "name",
@@ -19,7 +20,8 @@ EXPECTED_HEADERS = {
         "current_price_quantity",
         "current_price_sale",
     ],
-    "product_tags": ["product_id", "tag", "position"],
+    "tag_products": ["tag", "product_id"],
+    "product_modifiers": ["product_id", "modifier", "position"],
     "price_history": ["product_id", "date", "price", "quantity", "sale"],
 }
 
@@ -34,6 +36,17 @@ def _create_catalog_database(database_path: Path) -> None:
     initialize_database(database_path)
     connection = connect_database(database_path)
     try:
+        connection.executemany(
+            """
+            INSERT INTO tags (tag, default_unit, default_quantity)
+            VALUES (?, ?, ?)
+            """,
+            [
+                ("bakery", "loaf", 1),
+                ("fresh", "lbs", 1.5),
+                ("stone fruit", "lbs", 2),
+            ],
+        )
         connection.executemany(
             "INSERT INTO stores (id, name, address) VALUES (?, ?, ?)",
             [
@@ -61,10 +74,17 @@ def _create_catalog_database(database_path: Path) -> None:
         )
         connection.executemany(
             """
-            INSERT INTO product_tags (product_id, tag, position)
+            INSERT INTO tag_products (tag, product_id)
+            VALUES (?, ?)
+            """,
+            [("stone fruit", 10), ("fresh", 10), ("bakery", 20)],
+        )
+        connection.executemany(
+            """
+            INSERT INTO product_modifiers (product_id, modifier, position)
             VALUES (?, ?, ?)
             """,
-            [(10, "stone fruit", 1), (10, "fresh", 0), (20, "bakery", 0)],
+            [(10, "ripe", 1), (10, "organic", 0)],
         )
         connection.executemany(
             """
@@ -81,47 +101,73 @@ def _create_catalog_database(database_path: Path) -> None:
         connection.close()
 
 
-def test_export_writes_four_catalog_csvs_with_stable_rows(tmp_path: Path) -> None:
+def test_export_writes_catalog_csvs_with_stable_rows(tmp_path: Path) -> None:
     database_path = tmp_path / "catalog.db"
     output_directory = tmp_path / "exports"
     _create_catalog_database(database_path)
+    output_directory.mkdir()
+    (output_directory / "product_tags.csv").write_text(
+        "legacy\n", encoding="utf-8"
+    )
 
     stats = export_catalog_to_csv(database_path, output_directory)
 
     assert {path.name for path in output_directory.iterdir()} == {
+        "tags.csv",
         "stores.csv",
         "products.csv",
-        "product_tags.csv",
+        "tag_products.csv",
+        "product_modifiers.csv",
         "price_history.csv",
     }
     assert stats.row_counts == {
+        "tags": 3,
         "stores": 2,
         "products": 2,
-        "product_tags": 3,
+        "tag_products": 3,
+        "product_modifiers": 2,
         "price_history": 3,
     }
-    assert stats.total_rows == 10
+    assert stats.total_rows == 15
 
     for table_name, expected_headers in EXPECTED_HEADERS.items():
         headers, _ = _read_csv(output_directory / f"{table_name}.csv")
         assert headers == expected_headers
 
+    _, catalog_tags = _read_csv(output_directory / "tags.csv")
     _, stores = _read_csv(output_directory / "stores.csv")
     _, products = _read_csv(output_directory / "products.csv")
-    _, tags = _read_csv(output_directory / "product_tags.csv")
+    _, tag_products = _read_csv(output_directory / "tag_products.csv")
+    _, modifiers = _read_csv(output_directory / "product_modifiers.csv")
     _, histories = _read_csv(output_directory / "price_history.csv")
 
     assert [row["id"] for row in stores] == ["1", "2"]
+    assert [row["tag"] for row in catalog_tags] == [
+        "bakery",
+        "fresh",
+        "stone fruit",
+    ]
+    assert catalog_tags[1] == {
+        "tag": "fresh",
+        "default_unit": "lbs",
+        "default_quantity": "1.5",
+    }
     assert stores[0]["name"] == 'Caf\u00e9, "Centro"'
+    assert stores[0]["latitude"] == ""
+    assert stores[0]["longitude"] == ""
     assert [row["id"] for row in products] == ["10", "20"]
     assert products[0]["current_price_date"] == "300.0"
     assert products[0]["current_price"] == "2.99"
     assert products[0]["current_price_quantity"] == "1.0"
     assert products[0]["current_price_sale"] == "0"
-    assert [(row["product_id"], row["tag"]) for row in tags] == [
-        ("10", "fresh"),
-        ("10", "stone fruit"),
-        ("20", "bakery"),
+    assert [(row["tag"], row["product_id"]) for row in tag_products] == [
+        ("bakery", "20"),
+        ("fresh", "10"),
+        ("stone fruit", "10"),
+    ]
+    assert [(row["product_id"], row["modifier"]) for row in modifiers] == [
+        ("10", "organic"),
+        ("10", "ripe"),
     ]
     assert [(row["product_id"], row["date"]) for row in histories] == [
         ("10", "100.0"),
@@ -181,5 +227,5 @@ def test_cli_reports_per_table_counts(tmp_path: Path, capsys: pytest.CaptureFixt
     assert exit_code == 0
     assert "stores: 2 rows" in output
     assert "price_history: 3 rows" in output
-    assert "Wrote 10 total rows" in output
+    assert "Wrote 15 total rows" in output
     assert str(output_directory.resolve()) in output

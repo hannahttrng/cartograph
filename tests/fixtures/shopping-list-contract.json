@@ -1,0 +1,55 @@
+{
+  "tags": [
+    {
+      "tag": "ground beef",
+      "defaultUnit": "lbs",
+      "defaultQuantity": 1.5,
+      "products": []
+    },
+    {
+      "tag": "milk",
+      "defaultUnit": "gallon",
+      "defaultQuantity": 1.0,
+      "products": []
+    }
+  ],
+  "createRequest": {
+    "name": "  Weekend Shop  ",
+    "items": [
+      {
+        "tag": " Milk ",
+        "modifiers": [
+          "ORGANIC"
+        ]
+      },
+      {
+        "tag": "Ground Beef",
+        "modifiers": [],
+        "unit": "lbs",
+        "quantity": 2.0
+      }
+    ],
+    "active": false
+  },
+  "expectedResponse": {
+    "id": 1,
+    "name": "Weekend Shop",
+    "items": [
+      {
+        "tag": "milk",
+        "modifiers": [
+          "organic"
+        ],
+        "unit": "gallon",
+        "quantity": 1.0
+      },
+      {
+        "tag": "ground beef",
+        "modifiers": [],
+        "unit": "lbs",
+        "quantity": 2.0
+      }
+    ],
+    "active": false
+  }
+}

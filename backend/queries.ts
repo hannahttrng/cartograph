@@ -4,6 +4,7 @@ export interface Tag {
   tag: string;
   defaultUnit: string;
   defaultQuantity: number;
+  products: EntityId[];
 }
 
 export interface Price {
@@ -17,29 +18,48 @@ export interface Price {
 export interface Product {
   id: EntityId;
   name: string;
-  tags: string[];
+  modifiers: string[];
   store: EntityId;
   currentPrice: Price | null;
   priceHistory: Price[];
   unit: string;
 }
 
-export interface Store {
-  id: EntityId;
+export interface StoreCreate {
   name: string;
   address: string;
+  latitude: number | null;
+  longitude: number | null;
+}
+
+export interface Store extends StoreCreate {
+  id: EntityId;
   products: EntityId[];
+}
+
+export interface ShoppingListItemInput {
+  tag: string;
+  modifiers?: string[];
+  unit?: string | null;
+  quantity?: number | null;
+}
+
+export interface ShoppingListItem {
+  tag: string;
+  modifiers: string[];
+  unit: string;
+  quantity: number;
 }
 
 export interface ShoppingListCreate {
   name?: string | null;
-  tags: string[];
+  items: ShoppingListItemInput[];
   active?: boolean;
 }
 
 export interface ShoppingListReplace {
   name: string;
-  tags: string[];
+  items: ShoppingListItemInput[];
   active?: boolean;
 }
 
@@ -47,25 +67,26 @@ export interface ShoppingListNameUpdate {
   name: string;
 }
 
-export type ShoppingListStatus = "PENDING" | "COMPUTING" | "READY" | "FAILED";
-
-export interface ShoppingList extends Omit<ShoppingListReplace, "active"> {
-  id: EntityId;
+export interface ShoppingListActiveUpdate {
   active: boolean;
-  routes: EntityId[];
-  status: ShoppingListStatus;
+}
+
+export interface ShoppingList {
+  id: EntityId;
+  name: string;
+  items: ShoppingListItem[];
+  active: boolean;
 }
 
 export interface RouteCreate {
-  tags: string[];
+  items: ShoppingListItem[];
 }
 
-export interface RouteTagSelection {
-  tag: string;
+export interface RouteItemSelection extends ShoppingListItem {
   product: EntityId | null;
 }
 
-export type RouteErrorCode = "PARTIAL_TAG_MATCH";
+export type RouteErrorCode = "PARTIAL_ITEM_MATCH";
 
 export interface RouteMetrics {
   distance: number;
@@ -77,19 +98,8 @@ export interface Route extends RouteMetrics {
   id: EntityId;
   stores: EntityId[];
   products: EntityId[];
-  productTags: Record<string, string[]>;
-  selections: RouteTagSelection[];
+  selections: RouteItemSelection[];
   errorCode?: RouteErrorCode | null;
-}
-
-export interface RouteModel extends Omit<Route, "productTags"> {
-  productTags: Map<EntityId, string[]>;
-}
-
-export interface RouteOptimizationRequest {
-  latitude: number;
-  longitude: number;
-  limit?: number;
 }
 
 export interface RouteScoreComponents {
@@ -97,22 +107,60 @@ export interface RouteScoreComponents {
   distanceCost: number;
   timeCost: number;
   storeCost: number;
+  modifierPenalty: number;
 }
 
-// Product-assignment variants stay as separate candidates. A nested variants
-// change must also update backend types/optimizer/controller, tests, and UI.
+export interface RouteStoreSummary extends StoreCreate {
+  id: EntityId;
+}
+
+export interface RouteProductSummary {
+  id: EntityId;
+  name: string;
+  store: EntityId;
+  unit: string;
+  modifiers: string[];
+  selectionPrice: number;
+}
+
+export interface RouteCandidateResult extends RouteMetrics {
+  id: EntityId;
+  stores: RouteStoreSummary[];
+  products: RouteProductSummary[];
+  selections: RouteItemSelection[];
+  productPrice: number;
+  matchedItemCount: number;
+  scoreComponents: RouteScoreComponents;
+  errorCode: RouteErrorCode | null;
+}
+
+export interface RouteCandidatesResponse {
+  generation: number;
+  candidates: RouteCandidateResult[];
+}
+
+// Product assignments stay flat within candidates. Final selection keeps one
+// candidate per Store set and reserves generated cheapest/shortest witnesses.
 export interface RouteCandidate extends RouteMetrics {
   stores: EntityId[];
   products: EntityId[];
-  productTags: Record<string, string[]>;
-  selections: RouteTagSelection[];
+  selections: RouteItemSelection[];
   productPrice: number;
-  matchedTagCount: number;
+  matchedItemCount: number;
   scoreComponents: RouteScoreComponents;
   errorCode?: RouteErrorCode | null;
 }
 
-export type RouteOptimizationStatus = "OPTIMAL" | "FEASIBLE_TIMEOUT";
+export type RouteOptimizationStatus =
+  | "OPTIMAL"
+  | "HEURISTIC"
+  | "FEASIBLE_TIMEOUT";
+
+export type RouteOptimizationErrorCode =
+  | "NO_ELIGIBLE_PRODUCTS"
+  | "MATRIX_UNAVAILABLE"
+  | "UNIT_CONVERSION_FAILED"
+  | "OPTIMIZATION_FAILED";
 
 export interface RouteOptimizationResponse {
   candidates: RouteCandidate[];
@@ -121,6 +169,27 @@ export interface RouteOptimizationResponse {
   provenPrefixCount: number;
   elapsedSeconds: number;
   timeoutSeconds: number;
+}
+
+export type RouteCalculationStatus =
+  | "IDLE"
+  | "RUNNING"
+  | "SUCCEEDED"
+  | "FAILED";
+
+export interface RouteCalculationResponse {
+  generation: number;
+  status: RouteCalculationStatus;
+  activeListCount: number;
+  itemCount: number;
+  resultCount: number;
+  optimizerStatus: RouteOptimizationStatus | null;
+  startedAt: number | null;
+  completedAt: number | null;
+  elapsedSeconds: number | null;
+  timeoutSeconds: number | null;
+  errorCode: RouteOptimizationErrorCode | null;
+  detail: string | null;
 }
 
 export interface HealthResponse {
@@ -139,6 +208,11 @@ export interface RequestOptions {
 
 export interface ApiClient {
   getHealth(options?: RequestOptions): Promise<HealthResponse>;
+  listTags(options?: RequestOptions): Promise<Tag[]>;
+  listTagModifiers(
+    tagId: string,
+    options?: RequestOptions,
+  ): Promise<string[]>;
   listShoppingLists(options?: RequestOptions): Promise<ShoppingList[]>;
   getShoppingList(
     shoppingListId: EntityId,
@@ -158,11 +232,14 @@ export interface ApiClient {
     input: ShoppingListNameUpdate,
     options?: RequestOptions,
   ): Promise<ShoppingList>;
-  optimizeShoppingListRoutes(
+  updateShoppingListActive(
     shoppingListId: EntityId,
-    input: RouteOptimizationRequest,
+    input: ShoppingListActiveUpdate,
     options?: RequestOptions,
-  ): Promise<RouteOptimizationResponse>;
+  ): Promise<ShoppingList>;
+  getRouteCalculation(options?: RequestOptions): Promise<RouteCalculationResponse>;
+  startRouteCalculation(options?: RequestOptions): Promise<RouteCalculationResponse>;
+  getRouteCandidates(options?: RequestOptions): Promise<RouteCandidatesResponse>;
   deleteShoppingList(
     shoppingListId: EntityId,
     options?: RequestOptions,
@@ -181,43 +258,6 @@ export class ApiClientError extends Error {
     this.status = status;
     this.errorCode = errorCode;
   }
-}
-
-export function productTagsFromWire(
-  productTags: Record<string, string[]>,
-): Map<EntityId, string[]> {
-  const result = new Map<EntityId, string[]>();
-  for (const [rawProductId, tags] of Object.entries(productTags)) {
-    const productId = Number(rawProductId);
-    if (!Number.isSafeInteger(productId) || productId <= 0) {
-      throw new ApiClientError(`Invalid product ID in productTags: ${rawProductId}`);
-    }
-    result.set(productId, [...tags]);
-  }
-  return result;
-}
-
-export function productTagsToWire(
-  productTags: ReadonlyMap<EntityId, readonly string[]>,
-): Record<string, string[]> {
-  const result: Record<string, string[]> = {};
-  for (const [productId, tags] of productTags) {
-    if (!Number.isSafeInteger(productId) || productId <= 0) {
-      throw new ApiClientError(`Invalid product ID in productTags: ${productId}`);
-    }
-    result[String(productId)] = [...tags];
-  }
-  return result;
-}
-
-export function toRouteModel(route: Route): RouteModel {
-  return {
-    ...route,
-    stores: [...route.stores],
-    products: [...route.products],
-    selections: route.selections.map((selection) => ({ ...selection })),
-    productTags: productTagsFromWire(route.productTags),
-  };
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -259,48 +299,109 @@ function parseEntityId(value: unknown, fieldName: string): EntityId {
   return value as EntityId;
 }
 
-function parseTags(value: unknown): string[] {
-  if (!Array.isArray(value)) {
-    throw new ApiClientError("The API returned invalid ShoppingList tags");
-  }
-  const tags = value.map((tag) => {
-    if (
-      typeof tag !== "string" ||
-      !tag ||
-      tag !== tag.trim() ||
-      tag !== tag.toLowerCase()
-    ) {
-      throw new ApiClientError("The API returned invalid ShoppingList tags");
-    }
-    return tag;
-  });
-  if (new Set(tags).size !== tags.length) {
-    throw new ApiClientError("The API returned duplicate ShoppingList tags");
-  }
-  return tags;
-}
-
-function parseRouteIds(value: unknown): EntityId[] {
-  if (!Array.isArray(value)) {
-    throw new ApiClientError("The API returned invalid ShoppingList routes");
-  }
-  const routes = value.map((routeId) => parseEntityId(routeId, "Route ID"));
-  if (new Set(routes).size !== routes.length) {
-    throw new ApiClientError("The API returned duplicate ShoppingList routes");
-  }
-  return routes;
-}
-
-function parseShoppingListStatus(value: unknown): ShoppingListStatus {
-  if (
-    value !== "PENDING" &&
-    value !== "COMPUTING" &&
-    value !== "READY" &&
-    value !== "FAILED"
-  ) {
-    throw new ApiClientError("The API returned an invalid ShoppingList status");
+function parseFiniteNumber(value: unknown, fieldName: string): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new ApiClientError(`The API returned an invalid ${fieldName}`);
   }
   return value;
+}
+
+function parseBoundedFiniteNumber(
+  value: unknown,
+  fieldName: string,
+  minimum: number,
+  maximum: number,
+): number {
+  const parsed = parseFiniteNumber(value, fieldName);
+  if (parsed < minimum || parsed > maximum) {
+    throw new ApiClientError(`The API returned an invalid ${fieldName}`);
+  }
+  return parsed;
+}
+
+function isNormalizedText(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    Boolean(value) &&
+    value === value.trim() &&
+    value === value.toLowerCase()
+  );
+}
+
+function isDisplayText(value: unknown): value is string {
+  return typeof value === "string" && Boolean(value) && value === value.trim();
+}
+
+function parseTagId(value: string): string {
+  if (!isNormalizedText(value)) {
+    throw new ApiClientError("tagId must be a normalized, nonblank string");
+  }
+  return value;
+}
+
+function parseStoreCreate(payload: unknown): StoreCreate {
+  if (
+    !isObject(payload) ||
+    !isDisplayText(payload.name) ||
+    !isDisplayText(payload.address)
+  ) {
+    throw new ApiClientError("The API returned an invalid Store response");
+  }
+  const latitude =
+    payload.latitude === null
+      ? null
+      : parseBoundedFiniteNumber(payload.latitude, "Store latitude", -90, 90);
+  const longitude =
+    payload.longitude === null
+      ? null
+      : parseBoundedFiniteNumber(
+          payload.longitude,
+          "Store longitude",
+          -180,
+          180,
+        );
+  if ((latitude === null) !== (longitude === null)) {
+    throw new ApiClientError("The API returned incomplete Store coordinates");
+  }
+  return {
+    name: payload.name,
+    address: payload.address,
+    latitude,
+    longitude,
+  };
+}
+
+function parseShoppingListItems(value: unknown): ShoppingListItem[] {
+  if (!Array.isArray(value)) {
+    throw new ApiClientError("The API returned invalid ShoppingList items");
+  }
+  const items = value.map((item) => {
+    if (
+      !isObject(item) ||
+      !isNormalizedText(item.tag) ||
+      !isNormalizedText(item.unit)
+    ) {
+      throw new ApiClientError("The API returned invalid ShoppingList items");
+    }
+    const quantity = parseNonNegativeFiniteNumber(
+      item.quantity,
+      "ShoppingList item quantity",
+    );
+    if (quantity <= 0) {
+      throw new ApiClientError("The API returned invalid ShoppingList items");
+    }
+    return {
+      tag: item.tag,
+      modifiers: parseModifiers(item.modifiers),
+      unit: item.unit,
+      quantity,
+    };
+  });
+  const tags = items.map((item) => item.tag);
+  if (new Set(tags).size !== tags.length) {
+    throw new ApiClientError("The API returned duplicate ShoppingList item tags");
+  }
+  return items;
 }
 
 function parseShoppingList(payload: unknown): ShoppingList {
@@ -312,21 +413,14 @@ function parseShoppingList(payload: unknown): ShoppingList {
   ) {
     throw new ApiClientError("The API returned an invalid ShoppingList response");
   }
-  const routes = parseRouteIds(payload.routes);
-  const status = parseShoppingListStatus(payload.status);
   if (typeof payload.active !== "boolean") {
     throw new ApiClientError("The API returned an invalid ShoppingList active flag");
-  }
-  if (routes.length > 0 && status !== "READY") {
-    throw new ApiClientError("The API returned inconsistent ShoppingList routes");
   }
   return {
     id: parseEntityId(payload.id, "ShoppingList ID"),
     name: payload.name,
-    tags: parseTags(payload.tags),
+    items: parseShoppingListItems(payload.items),
     active: payload.active,
-    routes,
-    status,
   };
 }
 
@@ -338,10 +432,26 @@ function parseShoppingLists(payload: unknown): ShoppingList[] {
 }
 
 function parseNonNegativeFiniteNumber(value: unknown, fieldName: string): number {
-  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+  const parsed = parseFiniteNumber(value, fieldName);
+  if (parsed < 0) {
     throw new ApiClientError(`The API returned an invalid ${fieldName}`);
   }
-  return value;
+  return parsed;
+}
+
+function parseNonNegativeInteger(value: unknown, fieldName: string): number {
+  if (!Number.isSafeInteger(value) || (value as number) < 0) {
+    throw new ApiClientError(`The API returned an invalid ${fieldName}`);
+  }
+  return value as number;
+}
+
+function parsePositiveInteger(value: unknown, fieldName: string): number {
+  const parsed = parseNonNegativeInteger(value, fieldName);
+  if (parsed === 0) {
+    throw new ApiClientError(`The API returned an invalid ${fieldName}`);
+  }
+  return parsed;
 }
 
 function parseUniqueEntityIds(value: unknown, fieldName: string): EntityId[] {
@@ -355,22 +465,94 @@ function parseUniqueEntityIds(value: unknown, fieldName: string): EntityId[] {
   return ids;
 }
 
-function parseRouteSelections(value: unknown): RouteTagSelection[] {
+function parseCatalogTag(payload: unknown): Tag {
+  if (
+    !isObject(payload) ||
+    !isNormalizedText(payload.tag) ||
+    !isNormalizedText(payload.defaultUnit)
+  ) {
+    throw new ApiClientError("The API returned an invalid Tag response");
+  }
+  const defaultQuantity = parseNonNegativeFiniteNumber(
+    payload.defaultQuantity,
+    "Tag defaultQuantity",
+  );
+  if (defaultQuantity <= 0) {
+    throw new ApiClientError("The API returned an invalid Tag defaultQuantity");
+  }
+  const products = parseUniqueEntityIds(payload.products, "Tag Product IDs");
+  if (
+    products.some(
+      (productId, index) => index > 0 && products[index - 1] > productId,
+    )
+  ) {
+    throw new ApiClientError("The API returned unordered Tag Product IDs");
+  }
+  return {
+    tag: payload.tag,
+    defaultUnit: payload.defaultUnit,
+    defaultQuantity,
+    products,
+  };
+}
+
+function parseCatalogTags(payload: unknown): Tag[] {
+  if (!Array.isArray(payload)) {
+    throw new ApiClientError("The API returned an invalid Tag collection");
+  }
+  const tags = payload.map(parseCatalogTag);
+  const tagIds = tags.map((tag) => tag.tag);
+  if (new Set(tagIds).size !== tagIds.length) {
+    throw new ApiClientError("The API returned duplicate Tags");
+  }
+  if (tagIds.some((tagId, index) => index > 0 && tagIds[index - 1] > tagId)) {
+    throw new ApiClientError("The API returned unordered Tags");
+  }
+  return tags;
+}
+
+function parseModifiers(payload: unknown): string[] {
+  if (!Array.isArray(payload) || !payload.every(isNormalizedText)) {
+    throw new ApiClientError("The API returned an invalid modifier collection");
+  }
+  const modifiers = [...payload];
+  if (new Set(modifiers).size !== modifiers.length) {
+    throw new ApiClientError("The API returned duplicate modifiers");
+  }
+  if (
+    modifiers.some(
+      (modifier, index) => index > 0 && modifiers[index - 1] > modifier,
+    )
+  ) {
+    throw new ApiClientError("The API returned unordered modifiers");
+  }
+  return modifiers;
+}
+
+function parseRouteSelections(value: unknown): RouteItemSelection[] {
   if (!Array.isArray(value)) {
     throw new ApiClientError("The API returned invalid route selections");
   }
   const selections = value.map((selection) => {
     if (
       !isObject(selection) ||
-      typeof selection.tag !== "string" ||
-      !selection.tag ||
-      selection.tag !== selection.tag.trim() ||
-      selection.tag !== selection.tag.toLowerCase()
+      !isNormalizedText(selection.tag) ||
+      !isNormalizedText(selection.unit)
     ) {
+      throw new ApiClientError("The API returned invalid route selections");
+    }
+    const quantity = parseNonNegativeFiniteNumber(
+      selection.quantity,
+      "route selection quantity",
+    );
+    if (quantity <= 0) {
       throw new ApiClientError("The API returned invalid route selections");
     }
     return {
       tag: selection.tag,
+      modifiers: parseModifiers(selection.modifiers),
+      unit: selection.unit,
+      quantity,
       product:
         selection.product === null
           ? null
@@ -378,189 +560,330 @@ function parseRouteSelections(value: unknown): RouteTagSelection[] {
     };
   });
   const tags = selections.map((selection) => selection.tag);
-  if (
-    new Set(tags).size !== tags.length ||
-    tags.some((tag, index) => index > 0 && tags[index - 1] > tag)
-  ) {
-    throw new ApiClientError("The API returned unordered route selections");
+  if (new Set(tags).size !== tags.length) {
+    throw new ApiClientError("The API returned duplicate route selection tags");
   }
   return selections;
 }
 
-function parseRouteProductTags(
-  value: unknown,
-  products: readonly EntityId[],
-): Record<string, string[]> {
-  if (!isObject(value)) {
-    throw new ApiClientError("The API returned invalid route productTags");
+function parseRouteStoreSummary(payload: unknown): RouteStoreSummary {
+  if (!isObject(payload)) {
+    throw new ApiClientError("The API returned an invalid Route Store");
   }
-  const parsed: Record<string, string[]> = {};
-  for (const [rawProductId, rawTags] of Object.entries(value)) {
-    const productId = parseEntityId(Number(rawProductId), "productTags Product ID");
-    if (
-      !Array.isArray(rawTags) ||
-      rawTags.length !== 1 ||
-      typeof rawTags[0] !== "string" ||
-      !rawTags[0]
-    ) {
-      throw new ApiClientError("The API returned invalid route productTags");
-    }
-    parsed[String(productId)] = [rawTags[0]];
-  }
-  const parsedIds = Object.keys(parsed).map(Number).sort((left, right) => left - right);
-  const expectedIds = [...products].sort((left, right) => left - right);
-  if (
-    parsedIds.length !== expectedIds.length ||
-    parsedIds.some((productId, index) => productId !== expectedIds[index])
-  ) {
-    throw new ApiClientError("The API returned inconsistent route productTags");
-  }
-  return parsed;
+  return {
+    id: parseEntityId(payload.id, "Route Store ID"),
+    ...parseStoreCreate(payload),
+  };
 }
 
-function parseRouteCandidate(payload: unknown): RouteCandidate {
-  if (!isObject(payload)) {
-    throw new ApiClientError("The API returned an invalid Route candidate");
-  }
-  const stores = parseUniqueEntityIds(payload.stores, "Route Store IDs");
-  const products = parseUniqueEntityIds(payload.products, "Route Product IDs");
-  const selections = parseRouteSelections(payload.selections);
-  const productTags = parseRouteProductTags(payload.productTags, products);
-  const matchedSelections = selections.filter(
-    (selection) => selection.product !== null,
-  );
-  const matchedProducts = matchedSelections.map((selection) => selection.product);
+function parseRouteProductSummary(payload: unknown): RouteProductSummary {
   if (
-    matchedProducts.length !== products.length ||
-    new Set(matchedProducts).size !== matchedProducts.length ||
-    products.some((productId) => !matchedProducts.includes(productId))
+    !isObject(payload) ||
+    !isDisplayText(payload.name) ||
+    !isNormalizedText(payload.unit)
   ) {
-    throw new ApiClientError("The API returned inconsistent Route selections");
+    throw new ApiClientError("The API returned an invalid Route Product");
   }
-  for (const selection of matchedSelections) {
-    if (
-      selection.product === null ||
-      productTags[String(selection.product)]?.[0] !== selection.tag
-    ) {
-      throw new ApiClientError("The API returned inconsistent Route productTags");
-    }
+  return {
+    id: parseEntityId(payload.id, "Route Product ID"),
+    name: payload.name,
+    store: parseEntityId(payload.store, "Route Product Store ID"),
+    unit: payload.unit,
+    modifiers: parseModifiers(payload.modifiers),
+    selectionPrice: parseNonNegativeFiniteNumber(
+      payload.selectionPrice,
+      "Route Product selectionPrice",
+    ),
+  };
+}
+
+function parseRouteErrorCode(value: unknown): RouteErrorCode | null {
+  if (value === null || value === "PARTIAL_ITEM_MATCH") {
+    return value;
   }
-  const expectedError =
-    matchedSelections.length === selections.length ? null : "PARTIAL_TAG_MATCH";
-  const errorCode: RouteErrorCode | null =
-    payload.errorCode === "PARTIAL_TAG_MATCH" ? "PARTIAL_TAG_MATCH" : null;
-  if ((payload.errorCode ?? null) !== errorCode || errorCode !== expectedError) {
-    throw new ApiClientError("The API returned inconsistent Route errorCode");
-  }
-  const matchedTagCount =
-    typeof payload.matchedTagCount === "number" ? payload.matchedTagCount : NaN;
-  if (!Number.isSafeInteger(matchedTagCount) || matchedTagCount <= 0) {
-    throw new ApiClientError("The API returned an invalid matchedTagCount");
-  }
-  if (matchedTagCount !== matchedSelections.length) {
-    throw new ApiClientError("The API returned inconsistent matchedTagCount");
-  }
-  if (!isObject(payload.scoreComponents)) {
+  throw new ApiClientError("The API returned an invalid Route errorCode");
+}
+
+function parseRouteScoreComponents(payload: unknown): RouteScoreComponents {
+  if (!isObject(payload)) {
     throw new ApiClientError("The API returned invalid scoreComponents");
   }
-  const scoreComponents: RouteScoreComponents = {
+  return {
     productPrice: parseNonNegativeFiniteNumber(
-      payload.scoreComponents.productPrice,
+      payload.productPrice,
       "product price component",
     ),
     distanceCost: parseNonNegativeFiniteNumber(
-      payload.scoreComponents.distanceCost,
+      payload.distanceCost,
       "distance cost component",
     ),
     timeCost: parseNonNegativeFiniteNumber(
-      payload.scoreComponents.timeCost,
+      payload.timeCost,
       "time cost component",
     ),
     storeCost: parseNonNegativeFiniteNumber(
-      payload.scoreComponents.storeCost,
+      payload.storeCost,
       "store cost component",
     ),
+    modifierPenalty: parseNonNegativeFiniteNumber(
+      payload.modifierPenalty,
+      "modifier penalty component",
+    ),
   };
+}
+
+function quantizedScoreUnits(value: number): number {
+  return Math.sign(value) * Math.round(Math.abs(value) * 1_000_000);
+}
+
+function parseRouteCandidateResult(payload: unknown): RouteCandidateResult {
+  if (
+    !isObject(payload) ||
+    !Array.isArray(payload.stores) ||
+    !Array.isArray(payload.products)
+  ) {
+    throw new ApiClientError("The API returned an invalid Route candidate");
+  }
+  const stores = payload.stores.map(parseRouteStoreSummary);
+  const storeIds = stores.map((store) => store.id);
+  if (new Set(storeIds).size !== storeIds.length) {
+    throw new ApiClientError("The API returned duplicate Route Stores");
+  }
+  const products = payload.products.map(parseRouteProductSummary);
+  const productIds = products.map((product) => product.id);
+  if (new Set(productIds).size !== productIds.length) {
+    throw new ApiClientError("The API returned duplicate Route Products");
+  }
+  const selections = parseRouteSelections(payload.selections);
+  const matchedProductIds = selections
+    .filter((selection) => selection.product !== null)
+    .map((selection) => selection.product);
+  if (
+    new Set(matchedProductIds).size !== matchedProductIds.length ||
+    matchedProductIds.length !== productIds.length ||
+    productIds.some((productId) => !matchedProductIds.includes(productId))
+  ) {
+    throw new ApiClientError("The API returned inconsistent Route selections");
+  }
+  if (products.some((product) => !storeIds.includes(product.store))) {
+    throw new ApiClientError("The API returned a Product outside the Route Stores");
+  }
+  const matchedItemCount = parsePositiveInteger(
+    payload.matchedItemCount,
+    "matchedItemCount",
+  );
+  if (matchedItemCount !== matchedProductIds.length) {
+    throw new ApiClientError("The API returned inconsistent matchedItemCount");
+  }
+  const expectedError: RouteErrorCode | null =
+    matchedProductIds.length === selections.length
+      ? null
+      : "PARTIAL_ITEM_MATCH";
+  const errorCode = parseRouteErrorCode(payload.errorCode);
+  if (errorCode !== expectedError) {
+    throw new ApiClientError("The API returned inconsistent Route errorCode");
+  }
+  const scoreComponents = parseRouteScoreComponents(payload.scoreComponents);
   const productPrice = parseNonNegativeFiniteNumber(
     payload.productPrice,
     "Route productPrice",
   );
-  const score = parseNonNegativeFiniteNumber(payload.score, "Route score");
+  const selectionPriceTotal = products.reduce(
+    (total, product) => total + product.selectionPrice,
+    0,
+  );
+  const score = parseFiniteNumber(payload.score, "Route score");
   const componentTotal = Object.values(scoreComponents).reduce(
-    (total, component) => total + component,
+    (total, component) => total + quantizedScoreUnits(component),
     0,
   );
   if (
-    Math.abs(productPrice - scoreComponents.productPrice) > 0.000001 ||
-    Math.abs(score - componentTotal) > 0.000001
+    quantizedScoreUnits(productPrice) !==
+      quantizedScoreUnits(selectionPriceTotal) ||
+    quantizedScoreUnits(productPrice) !==
+      quantizedScoreUnits(scoreComponents.productPrice) ||
+    quantizedScoreUnits(score) !== componentTotal
   ) {
     throw new ApiClientError("The API returned inconsistent Route score components");
   }
   return {
+    id: parseEntityId(payload.id, "Route candidate ID"),
     stores,
     products,
-    productTags,
     selections,
     distance: parseNonNegativeFiniteNumber(payload.distance, "Route distance"),
     time: parseNonNegativeFiniteNumber(payload.time, "Route time"),
     score,
     productPrice,
-    matchedTagCount,
+    matchedItemCount,
     scoreComponents,
     errorCode,
   };
 }
 
-function parseRouteOptimizationResponse(payload: unknown): RouteOptimizationResponse {
+function parseRouteCandidatesResponse(payload: unknown): RouteCandidatesResponse {
   if (!isObject(payload) || !Array.isArray(payload.candidates)) {
-    throw new ApiClientError("The API returned an invalid optimization response");
+    throw new ApiClientError("The API returned an invalid Route candidates response");
   }
-  if (payload.status !== "OPTIMAL" && payload.status !== "FEASIBLE_TIMEOUT") {
-    throw new ApiClientError("The API returned an invalid optimization status");
-  }
-  const candidates = payload.candidates.map(parseRouteCandidate);
-  if (candidates.length < 1 || candidates.length > 20) {
+  const generation = parseNonNegativeInteger(
+    payload.generation,
+    "Route candidate generation",
+  );
+  const candidates = payload.candidates.map(parseRouteCandidateResult);
+  if (candidates.length > 20) {
     throw new ApiClientError("The API returned an invalid candidate count");
   }
-  const requestedLimit =
-    typeof payload.requestedLimit === "number" ? payload.requestedLimit : NaN;
-  if (
-    !Number.isSafeInteger(requestedLimit) ||
-    requestedLimit < 1 ||
-    requestedLimit > 20 ||
-    candidates.length > requestedLimit
-  ) {
-    throw new ApiClientError("The API returned an invalid requestedLimit");
+  const candidateIds = candidates.map((candidate) => candidate.id);
+  if (new Set(candidateIds).size !== candidateIds.length) {
+    throw new ApiClientError("The API returned duplicate Route candidate IDs");
   }
-  const provenPrefixCount =
-    typeof payload.provenPrefixCount === "number"
-      ? payload.provenPrefixCount
-      : NaN;
-  if (
-    !Number.isSafeInteger(provenPrefixCount) ||
-    provenPrefixCount < 0 ||
-    provenPrefixCount > candidates.length ||
-    (payload.status === "OPTIMAL" && provenPrefixCount !== candidates.length)
-  ) {
-    throw new ApiClientError("The API returned invalid proof metadata");
+  return { generation, candidates };
+}
+
+function parseRouteOptimizationStatus(
+  value: unknown,
+): RouteOptimizationStatus | null {
+  if (value === null) {
+    return null;
   }
-  const timeoutSeconds = parseNonNegativeFiniteNumber(
-    payload.timeoutSeconds,
-    "optimization timeout",
+  if (
+    value !== "OPTIMAL" &&
+    value !== "HEURISTIC" &&
+    value !== "FEASIBLE_TIMEOUT"
+  ) {
+    throw new ApiClientError("The API returned an invalid optimization status");
+  }
+  return value;
+}
+
+function parseRouteCalculationStatus(value: unknown): RouteCalculationStatus {
+  if (
+    value !== "IDLE" &&
+    value !== "RUNNING" &&
+    value !== "SUCCEEDED" &&
+    value !== "FAILED"
+  ) {
+    throw new ApiClientError("The API returned an invalid calculation status");
+  }
+  return value;
+}
+
+function parseRouteOptimizationErrorCode(
+  value: unknown,
+): RouteOptimizationErrorCode | null {
+  if (value === null) {
+    return null;
+  }
+  if (
+    value !== "NO_ELIGIBLE_PRODUCTS" &&
+    value !== "MATRIX_UNAVAILABLE" &&
+    value !== "UNIT_CONVERSION_FAILED" &&
+    value !== "OPTIMIZATION_FAILED"
+  ) {
+    throw new ApiClientError("The API returned an invalid optimization errorCode");
+  }
+  return value;
+}
+
+function parseNullableNonNegativeFiniteNumber(
+  value: unknown,
+  fieldName: string,
+): number | null {
+  return value === null ? null : parseNonNegativeFiniteNumber(value, fieldName);
+}
+
+function parseNullablePositiveFiniteNumber(
+  value: unknown,
+  fieldName: string,
+): number | null {
+  if (value === null) {
+    return null;
+  }
+  const parsed = parseNonNegativeFiniteNumber(value, fieldName);
+  if (parsed === 0) {
+    throw new ApiClientError(`The API returned an invalid ${fieldName}`);
+  }
+  return parsed;
+}
+
+function parseRouteCalculationResponse(
+  payload: unknown,
+): RouteCalculationResponse {
+  if (!isObject(payload)) {
+    throw new ApiClientError("The API returned an invalid calculation response");
+  }
+  const generation = parseNonNegativeInteger(
+    payload.generation,
+    "calculation generation",
   );
-  if (timeoutSeconds <= 0) {
-    throw new ApiClientError("The API returned an invalid optimization timeout");
+  const status = parseRouteCalculationStatus(payload.status);
+  const activeListCount = parseNonNegativeInteger(
+    payload.activeListCount,
+    "calculation activeListCount",
+  );
+  const itemCount = parseNonNegativeInteger(
+    payload.itemCount,
+    "calculation itemCount",
+  );
+  const resultCount = parseNonNegativeInteger(
+    payload.resultCount,
+    "calculation resultCount",
+  );
+  const optimizerStatus = parseRouteOptimizationStatus(payload.optimizerStatus);
+  const startedAt = parseNullableNonNegativeFiniteNumber(
+    payload.startedAt,
+    "calculation startedAt",
+  );
+  const completedAt = parseNullableNonNegativeFiniteNumber(
+    payload.completedAt,
+    "calculation completedAt",
+  );
+  const elapsedSeconds = parseNullableNonNegativeFiniteNumber(
+    payload.elapsedSeconds,
+    "calculation elapsedSeconds",
+  );
+  const timeoutSeconds = parseNullablePositiveFiniteNumber(
+    payload.timeoutSeconds,
+    "calculation timeoutSeconds",
+  );
+  const errorCode = parseRouteOptimizationErrorCode(payload.errorCode);
+  const detail =
+    payload.detail === null
+      ? null
+      : typeof payload.detail === "string"
+        ? payload.detail
+        : undefined;
+  if (detail === undefined) {
+    throw new ApiClientError("The API returned an invalid calculation detail");
+  }
+  if (
+    (status === "IDLE" &&
+      (generation !== 0 || startedAt !== null || completedAt !== null)) ||
+    (status !== "IDLE" && (generation === 0 || startedAt === null)) ||
+    (status === "RUNNING" && completedAt !== null) ||
+    ((status === "SUCCEEDED" || status === "FAILED") && completedAt === null)
+  ) {
+    throw new ApiClientError("The API returned inconsistent calculation metadata");
+  }
+  if (
+    (status === "FAILED" && (errorCode === null || !detail)) ||
+    (status !== "FAILED" && (errorCode !== null || detail !== null))
+  ) {
+    throw new ApiClientError("The API returned inconsistent calculation error data");
   }
   return {
-    candidates,
-    status: payload.status,
-    requestedLimit,
-    provenPrefixCount,
-    elapsedSeconds: parseNonNegativeFiniteNumber(
-      payload.elapsedSeconds,
-      "optimization elapsed time",
-    ),
+    generation,
+    status,
+    activeListCount,
+    itemCount,
+    resultCount,
+    optimizerStatus,
+    startedAt,
+    completedAt,
+    elapsedSeconds,
     timeoutSeconds,
+    errorCode,
+    detail,
   };
 }
 
@@ -625,6 +948,22 @@ export function createApiClient(
       return parseHealth(await request("/api/v1/health", { options }));
     },
 
+    async listTags(options?: RequestOptions): Promise<Tag[]> {
+      return parseCatalogTags(await request("/api/v1/tags", { options }));
+    },
+
+    async listTagModifiers(
+      tagId: string,
+      options?: RequestOptions,
+    ): Promise<string[]> {
+      const id = parseTagId(tagId);
+      return parseModifiers(
+        await request(`/api/v1/tags/${encodeURIComponent(id)}/modifiers`, {
+          options,
+        }),
+      );
+    },
+
     async listShoppingLists(options?: RequestOptions): Promise<ShoppingList[]> {
       return parseShoppingLists(
         await request("/api/v1/shopping-lists", { options }),
@@ -684,18 +1023,45 @@ export function createApiClient(
       );
     },
 
-    async optimizeShoppingListRoutes(
+    async updateShoppingListActive(
       shoppingListId: EntityId,
-      input: RouteOptimizationRequest,
+      input: ShoppingListActiveUpdate,
       options?: RequestOptions,
-    ): Promise<RouteOptimizationResponse> {
+    ): Promise<ShoppingList> {
       const id = parseEntityId(shoppingListId, "ShoppingList ID");
-      return parseRouteOptimizationResponse(
-        await request(`/api/v1/shopping-lists/${id}/route-candidates`, {
-          method: "POST",
+      return parseShoppingList(
+        await request(`/api/v1/shopping-lists/${id}/active`, {
+          method: "PATCH",
           body: input,
           options,
         }),
+      );
+    },
+
+    async getRouteCalculation(
+      options?: RequestOptions,
+    ): Promise<RouteCalculationResponse> {
+      return parseRouteCalculationResponse(
+        await request("/api/v1/route-calculation", { options }),
+      );
+    },
+
+    async startRouteCalculation(
+      options?: RequestOptions,
+    ): Promise<RouteCalculationResponse> {
+      return parseRouteCalculationResponse(
+        await request("/api/v1/route-calculation", {
+          method: "POST",
+          options,
+        }),
+      );
+    },
+
+    async getRouteCandidates(
+      options?: RequestOptions,
+    ): Promise<RouteCandidatesResponse> {
+      return parseRouteCandidatesResponse(
+        await request("/api/v1/route-candidates", { options }),
       );
     },
 

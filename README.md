@@ -70,7 +70,8 @@ npm run ios
 ```
 
 Start the FastAPI backend before testing Carter or any live API functionality.
-The iOS Simulator uses `http://localhost:8000` by default. When running the app
+The frontend uses `http://localhost:8000` on iOS and
+`http://10.0.2.2:8000` on an Android emulator by default. When running the app
 on a physical phone, set the backend to your computer's LAN address before
 starting Expo, replacing the example address with your computer's local IP:
 
@@ -78,26 +79,97 @@ starting Expo, replacing the example address with your computer's local IP:
 EXPO_PUBLIC_API_BASE_URL="http://192.168.1.50:8000" npm start
 ```
 
-The phone and computer must be on the same network. For an offline UI demo,
-use mock data instead:
+The phone and computer must be on the same network. For a contract-equivalent
+offline Shopping List demo, use mock data instead:
 
 ```sh
 EXPO_PUBLIC_USE_MOCK_DATA=true npm start
 ```
 
-The route map embeds the hackathon ArcGIS Web Map without requiring backend
-route geometry. Override Caitlin's Web Map item or organization portal before
-starting Expo when those resources change:
+### Current frontend prototype
+
+The application uses a flat native stack with a custom footer for Home, Lists,
+Stores, Routes, and Carter. Account, list editing, and map views remain stack
+details. The incoming Monda/SVG visual system is shared across these screens.
+
+The Lists tab calls the implemented `/api/v1/tags` and
+`/api/v1/shopping-lists` endpoints. It loads backend Shopping Lists, accepts
+only catalog Tags, creates lists, uses name-only PATCH requests when possible,
+replaces item drafts with PUT, and deletes server records. Parsed live and mock
+responses pass through the same runtime contract checks. Backend Shopping Lists
+own list names, items, numeric IDs, and the Active flag. The Lists tab filters
+All Lists, Active, and Inactive server records and supports quick Active
+updates; the editor exposes the same flag. Each item has a modifier disclosure
+that suggests up to four prioritized Product attributes and searches the full
+Tag-wide modifier catalog. Selected modifiers are saved with the item as route
+preferences. Device-local favorites, archives, and collections have been
+removed.
+
+The Routes footer polls `/api/v1/route-calculation` while the global active-list
+calculation is running, then reads the matching generation from
+`/api/v1/route-candidates`. Each card shows its server rank, Store count,
+distance, travel time, and snapshotted Product purchase total; expanding a card
+reveals ordered Stores, selected Products, and any unmatched items. Loading,
+failed/retry, no-active-list, no-candidate, and populated states are explicit.
+Selected Products display badges for stored `on sale` and `in season`
+attributes plus requested modifiers that Product fulfilled.
+`Best Overall` preserves backend order, while `Cheaper` sorts by snapshotted
+purchase total and `Closer` sorts by route distance. Each Route card passes its
+ordered Store names, addresses, and nullable coordinates to the separate
+client-side ArcGIS map solve.
+
+The route map runs ArcGIS Maps SDK for JavaScript 5.1 inside the existing
+WebView. For the demo, it starts and returns at the fixed WGS84 location
+`34.0556, -117.1825`, uses each Store's paired coordinates when available, and
+geocodes an address only as that Store's fallback. It preserves the selected
+Store order and requests a true-shape driving route and directions from the
+ArcGIS World Route service. ArcGIS totals replace the optimizer estimates on
+the Map screen after the solve, and the ordered maneuvers render in an
+accessible native panel below the map.
+
+Create an API key with **Basemaps**, **Geocoding**, and **Routing** privileges,
+then set it before starting Expo. The key is intentionally exposed through an
+`EXPO_PUBLIC_` variable for this demo and must not be treated as a production
+secret. Override the Web Map item or organization portal when those resources
+change:
 
 ```sh
+EXPO_PUBLIC_ARCGIS_API_KEY="YOUR_DEMO_API_KEY" \
 EXPO_PUBLIC_ARCGIS_WEB_MAP_ITEM_ID="1114223c46f948c4b17a6ddb8c3e4865" \
 EXPO_PUBLIC_ARCGIS_PORTAL_URL="https://intern-hackathon.maps.arcgis.com" \
 npm start
 ```
 
-The Web Map and all referenced layers must be shared with the signed-in user or
-publicly accessible. If the embedded map cannot load, Cartograph retains the
-existing text route-details fallback.
+Expo reads public variables when Metro starts, so restart Metro after changing
+the key. The Web Map and referenced layers must be public or otherwise
+accessible. A Store geocode failure fails the complete route rather than
+dropping or reordering that stop; Cartograph leaves the basemap visible and
+offers a route retry. If the WebView or Web Map itself fails, Cartograph offers
+retry and external-browser actions and retains the complete
+origin/Stores/origin sequence as a text fallback. The external browser action
+opens the base Web Map, not the solved route.
+
+For Android WebView rendering diagnosis, enable the native diagnostic viewer
+and select the ArcGIS map construction path before restarting Metro:
+
+```sh
+EXPO_PUBLIC_ARCGIS_MAP_DIAGNOSTICS=true \
+EXPO_PUBLIC_ARCGIS_MAP_SOURCE=webMap \
+EXPO_PUBLIC_ARCGIS_MAP_HOST=component \
+npm start
+```
+
+Use `webMap` or `basemap` for the source and `component` or `mapView` for the
+host. The viewer reports bounded runtime, layer, render, hit-test, and screenshot
+facts without including the API key. Keep diagnostics disabled during normal
+use because screenshot and pixel probes add work after route rendering.
+
+Shopping List mutations schedule the global backend calculation when the active
+input set changes. Client-side route geometry and directions remain transient
+and are not persisted with backend candidates. Live location acquisition, a
+production ArcGIS travel-matrix provider, and backend-driven map geometry
+remain deferred; the backend currently uses a deterministic offline Redlands
+matrix approximation.
 
 ## Backend
 
@@ -127,15 +199,17 @@ python -m venv .venv
 python -m pip install -r backend/requirements.txt
 ```
 
-With the virtual environment active, start the server:
+With the virtual environment active, start the server. Bind to `0.0.0.0` so an
+Android emulator can reach it through `10.0.2.2`:
 
 ```sh
-python -m uvicorn backend.index:app --reload
+python -m uvicorn backend.index:app --reload --host 0.0.0.0 --port 8000
 ```
 
 The API is available at `http://127.0.0.1:8000`. Useful initial endpoints are:
 
 - Health: `GET http://127.0.0.1:8000/api/v1/health`
+- Tags: `GET http://127.0.0.1:8000/api/v1/tags`
 - Shopping Lists: `GET http://127.0.0.1:8000/api/v1/shopping-lists`
 - Recipe Import: `POST http://127.0.0.1:8000/api/v1/assistant/recipe-import`
 - Carter chat: `POST http://127.0.0.1:8000/api/v1/assistant/chat`
@@ -213,18 +287,55 @@ normalized grocery tags, and any warnings. Recipe URLs must resolve to a public
 host, return HTML, complete within three redirects, and fit within a 1 MB
 response limit. When a URL cannot be read, paste the recipe text instead.
 
+### Carter chat
+
 Carter chat accepts a current `message` plus up to 12 prior `messages` for
 short-lived conversational context. Each history item has a `role` of `user` or
 `assistant` and a non-empty `content` value. The client owns this transcript;
 the backend does not persist chat history.
 
+### Catalog classification and Product modifiers
+
+A `Tag` owns the Product IDs classified under it. The relationship is
+many-to-many: one Tag may contain many Products, and one Product may belong to
+many Tags. The Tag contract exposes normalized `tag`, `defaultUnit`,
+`defaultQuantity`, and a unique `products` list in ascending Product-ID order.
+`GET /api/v1/tags` returns every Tag in normalized name order, including Tags
+without Products.
+
+`GET /api/v1/tags/{tagId}/modifiers` returns the unique normalized modifiers
+attached to any Product classified under that Tag, in alphabetical order. The
+`tagId` path value is the normalized string returned in the Tag's `tag` field;
+multiword values must be URL-encoded. All classified Products participate,
+regardless of current-price eligibility. A known Tag with no modifiers returns
+an empty array, while an unknown Tag returns `404 Not Found`.
+
+A Product does not expose its classifications as `tags`. Its independent
+`modifiers` list contains ordered, normalized attributes such as `organic` or
+`frozen`. Modifiers are stripped, converted to lowercase, and rejected when
+blank or duplicated after normalization. They are independent from catalog Tag
+membership. Shopping List items may request modifiers, and optimization then
+treats them as weighted preferences. The endpoint remains a Tag-wide catalog
+suggestion surface: it is independent of Product units and current-price
+eligibility, so a suggested modifier is not a promise that every current route
+can fulfill it.
+
+SQLite stores classification membership in unordered `tag_products` rows and
+ordered modifiers in `product_modifiers`. On initialization, a legacy
+`product_tags` table is migrated into `tag_products`; those values remain
+classifications and are not copied into Product modifiers.
+`on sale` and `in season` are consumed exactly as stored. Seeding materializes
+`on sale`, and the explicit grocery-price postprocessor materializes
+`in season`; synchronization with future Price observations belongs to the
+future PriceHistory update job rather than Shopping List or route calculation.
+
 ### Product pricing
 
 Product and Store names and Store addresses are display text: surrounding
 whitespace is stripped while capitalization is preserved. Whitespace-only
-values are rejected. Other normalized text fields, including tags, units, and
-Route request tags, are stripped and converted to lowercase. Internal spaces in
-multiword tags are preserved.
+values are rejected. Other normalized text fields, including catalog Tags,
+Product modifiers, units, and Route request tags, are stripped and converted to
+lowercase. Meaningful internal spaces are preserved.
 
 `Price` is the shared value shape used by Product pricing. Every Price contains a
 nonnegative floating-point package `price`, a positive finite floating-point
@@ -254,139 +365,212 @@ no current Price cannot be added to a Route. `unitPrice` remains derived.
 
 ```json
 {
-	"tags": ["milk", "ground beef", "fruit"]
+	"items": [
+		{
+			"tag": "milk",
+			"modifiers": ["organic"],
+			"unit": "gallon",
+			"quantity": 1
+		}
+	]
 }
 ```
 
-Tags are stripped, converted to lowercase, and duplicates are collapsed in
-first-seen order. Route optimization considers only Products whose
-`currentPrice` is non-null, assign distinct eligible Products to as many
-requested tags as possible, derive their stores, order the store visits, and
-calculate route metrics.
+Item tags, modifiers, and units are normalized lowercase text. Item tags must
+be unique. Route optimization considers only Products whose `currentPrice` is
+non-null, assigns distinct eligible Products to as many requested items as
+possible, derives their Stores, orders the Store visits, and calculates route
+metrics. An eligible Product belongs to the requested Tag, uses the exact
+requested unit, and has a complete current Price. Each requested modifier that
+the Product does not contain adds a `$2.50` score penalty rather than excluding
+the Product. The item quantity scales its Product cost from the current package
+price and package quantity.
 
 A `Route` response includes:
 
 - `stores`: unique store IDs in computed visit order.
 - `products`: unique product IDs grouped by store visit order, then requested
-	tag order within each store.
-- `productTags`: selected product IDs mapped to the requested tag they satisfy.
-- `selections`: every requested tag and its selected product, or `null` when
-	unmatched.
+	item order within each store.
+- `selections`: every requested item, including modifiers, unit, and quantity,
+	plus its selected Product or `null` when unmatched.
 - `distance`, `time`, and `score`: backend-computed metrics.
-- `errorCode`: `PARTIAL_TAG_MATCH` when one or more tags are unmatched.
+- `errorCode`: `PARTIAL_ITEM_MATCH` when one or more items are unmatched.
 
-The SQLite schema persists ordered stores and tag selections as the canonical
-relationships. The products list and product-to-tags mapping are derived from
-those selections rather than stored redundantly.
+The SQLite schema persists ordered Stores and item selections as the canonical
+relationships. The Products list is derived from those selections rather than
+stored redundantly.
 
 ### Shopping Lists
 
-A Shopping List stores a display name, an `active` flag, and an unordered set of
-normalized tags. New and replacement requests default `active` to `true` when
-it is omitted. Create requests may also omit `name`; the backend then assigns
-the smallest unused exact name `New List x`, starting with `New List 1`. Custom
-names are trimmed while preserving capitalization, may be edited, and do not
-need to be unique. An explicitly empty tag set is valid.
+A Shopping List stores a display name, an `active` flag, and an ordered list of
+items with unique normalized tags. New and replacement requests default
+`active` to `true` when it is omitted. Create requests may also omit `name`; the
+backend then assigns the smallest unused exact name `New List x`, starting with
+`New List 1`. Custom names are trimmed while preserving capitalization, may be
+edited, and do not need to be unique. An explicitly empty item list is valid.
 
 ```json
 {
 	"name": "Weekend",
-	"tags": ["milk", "ground beef"],
+	"items": [
+		{"tag": "milk"},
+		{"tag": "ground beef", "unit": "lbs", "quantity": 1}
+	],
 	"active": true
 }
 ```
 
-Responses add server-managed route results and computation status:
+Responses contain only Shopping List state; route calculation is global:
 
 ```json
 {
 	"id": 1,
 	"name": "Weekend",
-	"tags": ["milk", "ground beef"],
-	"active": true,
-	"routes": [12, 19],
-	"status": "READY"
+	"items": [
+		{
+			"tag": "milk",
+			"modifiers": [],
+			"unit": "gallon",
+			"quantity": 1
+		},
+		{
+			"tag": "ground beef",
+			"modifiers": [],
+			"unit": "lbs",
+			"quantity": 1
+		}
+	],
+	"active": true
 }
 ```
 
-JSON represents tags as an array, but tag order has no meaning. `routes` is an
-ordered list of Route IDs ranked best-first. The supported status values are
-`PENDING`, `COMPUTING`, `READY`, and `FAILED`.
+Item order is preserved. Shopping Lists do not own Route IDs or computation
+status.
 
 The REST operations are:
 
 - `POST /api/v1/shopping-lists`: create a Shopping List.
 - `GET /api/v1/shopping-lists`: list Shopping Lists in ID order.
 - `GET /api/v1/shopping-lists/{id}`: fetch one Shopping List.
-- `PUT /api/v1/shopping-lists/{id}`: replace its name, tags, and active flag.
+- `PUT /api/v1/shopping-lists/{id}`: replace its name, items, and active flag.
 - `PATCH /api/v1/shopping-lists/{id}/name`: update only its display name.
-- `POST /api/v1/shopping-lists/{id}/route-candidates`: optimize its tags from
-	a supplied current location.
-- `DELETE /api/v1/shopping-lists/{id}`: delete it and its owned Routes.
+- `PATCH /api/v1/shopping-lists/{id}/active`: update only its Active flag.
+- `DELETE /api/v1/shopping-lists/{id}`: delete it.
+- `GET /api/v1/route-calculation`: read global calculation state.
+- `POST /api/v1/route-calculation`: explicitly start a fresh calculation.
+- `GET /api/v1/route-candidates`: read the current global ranked Route set.
 
-Changing only a name through the dedicated endpoint preserves active state,
-tags, status, Route results, and the internal revision. Changing tags through
-PUT invalidates owned Routes, increments the revision, and returns the Shopping
-List to `PENDING`. Future route-computation workers claim pending lists,
-publish ranked Route IDs, or mark computations failed through resolver helpers.
-Completion is guarded by the claimed revision so stale work cannot be attached
-after a newer tag update. Scheduling and route computation are not implemented
-by the CRUD API.
+An active create, active deletion, true Active transition, or saved item change
+on an active list starts a new generation. Name-only updates and item changes
+that remain inactive do not. Starting atomically clears global Routes. A
+single-process worker cooperatively cancels superseded work and publishes only
+when its SQLite generation remains current, so stale work cannot replace newer
+results. Deactivating the final list succeeds with zero Routes.
 
-SQLite stores Shopping Lists, their unordered tags, and their ranked Route
-ownership in `shopping_lists`, `shopping_list_tags`, and
-`shopping_list_routes`. A Route can be owned by at most one Shopping List;
-standalone Routes remain supported.
+SQLite stores Shopping Lists, ordered items, and modifiers independently from
+the one global ranked Route set. `route_calculation_state` is a singleton row
+containing generation, `IDLE`/`RUNNING`/`SUCCEEDED`/`FAILED` status, counts,
+optimizer timing, and typed failure detail. Initialization preserves Lists and
+items, removes obsolete per-list status/revision/ownership, and deletes legacy
+Routes whose snapshots do not satisfy the global contract.
 
 ### Route optimization
 
-The route-candidate endpoint accepts WGS84 latitude/longitude and an optional
-result limit. The limit defaults to 10 and must be between 1 and 20:
+All active Shopping List items are combined before optimization. Duplicate tags
+use the Tag's default unit, converted quantities are summed, and normalized
+modifiers are unioned. Pint handles conversions, including contextual mass or
+fluid interpretation for `oz`; incompatible or unknown units fail the complete
+generation with `UNIT_CONVERSION_FAILED` rather than dropping an item.
+
+The manager uses the fixed WGS84 Redlands demo origin:
+
+```json
+{"latitude": 34.0556, "longitude": -117.1825}
+```
+
+`GET /api/v1/route-calculation` returns the current generation and state:
 
 ```json
 {
-	"latitude": 34.0556,
-	"longitude": -117.1825,
-	"limit": 10
+	"generation": 4,
+	"status": "RUNNING",
+	"activeListCount": 2,
+	"itemCount": 7,
+	"resultCount": 0,
+	"optimizerStatus": null,
+	"startedAt": 1785051694.0,
+	"completedAt": null,
+	"elapsedSeconds": null,
+	"timeoutSeconds": null,
+	"errorCode": null,
+	"detail": null
 }
 ```
 
-The optimizer loads the saved Shopping List's normalized tags and all matching
-Products with a current package price. Version 1 supports at most 50 unique
-tags and 10 candidate Stores. One tag represents one package, each Product may
-satisfy at most one tag, and quantities and unit conversion are not modeled.
+The optimizer loads current-priced Products owned by each combined catalog Tag.
+Version 1 supports at most 50 deduplicated items and 12 candidate Stores.
+Eligibility also requires an exact unit match. Requested modifiers are soft
+preferences, and each Product may satisfy at most one item.
 
-OR-Tools CP-SAT jointly chooses tag-to-Product assignments, the visited Store
-set, and a directed round trip that starts and ends at the input location. The
-location is not included in `stores`. Null ArcGIS matrix cells are forbidden
-arcs, and matrix direction is preserved.
+A deterministic bounded beam search generates item-to-Product assignments. A
+maximum-cardinality matching witness protects coverage, while bounded directed
+Store-sequence search and a fixed-Store-set dynamic-programming witness produce
+round trips that start and end at the input location. The location is not
+included in `stores`. Null ArcGIS matrix cells are forbidden arcs, and matrix
+direction is preserved.
 
-Candidates are ranked first by matched-tag count descending, then by this
+Candidates are ranked first by matched-item count descending, then by this
 lower-is-better dollar-equivalent score:
 
 ```text
-package price + (0.70 * miles) + (20.00 * driving hours) + (2.50 * stores)
+sum(package price / package quantity * requested quantity)
+	+ (0.40 * miles) + (8.00 * driving hours) + (1.50 * stores)
+	+ (1.50 * missed requested modifiers)
 ```
 
-Package prices are rounded half-up to cents, distance to 0.001 mile, and
-driving time to 0.01 minute before exact integer scoring. `scoreComponents`
-returns product, distance, time, and Store costs using the same arithmetic.
+Each quantity-scaled Product cost is rounded half-up to cents, distance to
+0.001 mile, and driving time to 0.01 minute before exact integer scoring.
+`scoreComponents` returns `productPrice`, `distanceCost`, `timeCost`,
+`storeCost`, and `modifierPenalty` using the same arithmetic. Coverage remains
+the first ranking objective, so a lower-scoring partial route never precedes a
+complete route solely because it missed items.
 Complete candidates always precede partial candidates; partial selections use
-`PARTIAL_TAG_MATCH`. Product substitutions are separate candidates, capped at
-three candidates for an identical ordered Store sequence.
+`PARTIAL_ITEM_MATCH`. Candidates are unique by unordered Store ID set. Alternate
+Store orders and Product substitutions still participate in optimization, but
+only one representative for each Store set is returned. For limits of at least
+two, final selection reserves space for the absolute cheapest and shortest runs
+among generated candidates whose matched-item count is at least 85% of Best
+Overall's matched-item count, rounded up to a whole item. Those Store sets may
+displace ordinary Best Overall candidates near the limit. The cheapest eligible
+run may replace the normal representative for its Store set. The shortest
+eligible run only protects its Store set, whose Best Overall representative is
+still returned. The selected candidates remain in Best Overall order. A limit
+of one continues to return Best Overall when the cheapest and shortest runs
+differ. The response can contain fewer than the requested limit when fewer
+unique Store sets are found.
 
-An `OPTIMAL` response proves every returned rank. `FEASIBLE_TIMEOUT` returns
-the deterministic best-known list when the server deadline expires;
-`provenPrefixCount` identifies the leading candidates whose ranks were proven.
-Empty lists and zero eligible Products return `NO_ELIGIBLE_PRODUCTS`. Matrix
-and solver failures use typed `MATRIX_UNAVAILABLE` and `OPTIMIZATION_FAILED`
-errors.
+A completed search returns `HEURISTIC` with `provenPrefixCount` set to zero;
+the bounded search does not claim global optimality. `FEASIBLE_TIMEOUT` returns
+the deterministic best-known list if the 10-second emergency deadline expires,
+also with zero proven candidates. `OPTIMAL` remains a backward-compatible wire
+value but is not emitted by this optimizer. Zero eligible Products fail the
+persisted calculation with `NO_ELIGIBLE_PRODUCTS`. Matrix and optimization
+failures use typed `MATRIX_UNAVAILABLE` and `OPTIMIZATION_FAILED` states.
 
-Route candidates are transient: optimization does not insert `routes` rows or
-change Shopping List status, revision, or existing Route ownership. The app
-receives a `TravelMatrixProvider` through `create_app`; that provider owns
-preloaded matrix lookup and synchronous ArcGIS regeneration. The concrete
-network/cache provider remains outside this implementation.
+Performance acceptance tests time only `optimize_routes()` after the catalog
+and matrix are loaded, with 10 Stores and `limit=20`. Their median targets are
+under one second for 5-10 items and under four seconds for 15-20 items; a
+12-Store case protects the expanded bound. These are test metrics, not
+end-to-end HTTP deadlines.
+
+Candidates are persisted globally with rank, score components, requested
+selections, ordered Stores, snapshotted selection prices, and the selected
+Products' normalized modifiers. GET responses enrich IDs with Store
+names/addresses/coordinates and Product names/units/modifiers, so the frontend
+requires no separate Product or Store endpoint. Route cards show stored
+`on sale`, stored `in season`, and requested modifiers fulfilled by the selected
+Product. Cancellation of the synchronous solver is cooperative; generation
+checks are the hard guard that prevents stale publication.
 
 ### ArcGIS matrix contract
 
@@ -410,8 +594,12 @@ Every successful cell atomically contains `distanceMiles` and
 `travelTimeMinutes`. A geocoding, unreachable-route, or ArcGIS service failure
 leaves the affected cell null and adds a diagnostic identifying its zero-based
 row and column. This preserves matrix dimensions during partial failures.
-Store addresses are geocoded at the future connector boundary; this phase does
-not persist coordinates or change the SQLite schema.
+Store coordinates are nullable paired fields in SQLite. Seeded addresses have
+deterministic Redlands/Highland coordinates, including migration backfills. The
+default `DemoTravelMatrixProvider` emits Haversine miles and a fixed 30 MPH time
+estimate while preserving the directed matrix shape; missing custom Store
+coordinates produce diagnostics. A live ArcGIS network/cache provider remains
+outside this implementation and may still be injected through `create_app()`.
 
 ### Project layout
 
@@ -419,10 +607,17 @@ not persist coordinates or change the SQLite schema.
 - `backend/types.py`: Pydantic API contracts.
 - `backend/resolvers.py`: SQLite schema and resolver protocols.
 - `backend/arcgis_connector.py`: internal ArcGIS travel-matrix contracts.
-- `backend/route_optimizer.py`: deterministic CP-SAT route optimization.
+- `backend/route_optimizer.py`: deterministic bounded route heuristic.
+- `backend/route_calculation.py`: cancellable global generation manager.
+- `backend/shopping_list_aggregation.py`: active-list item combination.
+- `backend/unit_conversion.py`: contextual Pint quantity conversion.
+- `backend/demo_travel_matrix.py`: deterministic offline matrix provider.
 - `backend/controllers.py`: versioned HTTP routes.
 - `backend/queries.ts`: React Native API types and client helpers.
 - `backend/tools/seed.py`: deterministic grocery catalog and price-history seeder.
+- `backend/tools/seed_catalog.py`: curated Product templates and Tag defaults.
+- `backend/tools/grocery_prices.py`: Prophet-based price forecasting and seasonal
+	Product modifier postprocessing.
 - `backend/tools/export_csv.py`: read-only catalog CSV exporter.
 - `export-catalog.ps1`: path-safe PowerShell launcher for CSV exports.
 
@@ -448,24 +643,52 @@ PriceHistories. Explicitly replace existing domain data when appropriate:
 python -m backend.tools.seed --reset --as-of 2026-07-24
 ```
 
+Reset also deletes Shopping Lists before replacing the Tag catalog so their
+item-to-Tag foreign keys cannot retain stale user data or block deterministic
+reseeding.
+
 `--database PATH` overrides `CARTOGRAPH_DB_PATH`. A completed run creates:
 
-- 10 Redlands grocery stores.
-- 40 Products per store and 400 Product rows total.
-- 20 universal product concepts available at all stores.
-- 60 limited-availability concepts stocked by between 1 and 5 stores, balanced
-	so each store receives 20 of them.
+- 12 Redlands and Highland grocery stores.
+- Exactly 60 Products per store and 720 Product rows total.
+- 10 universal product concepts available at all stores.
+- 180 limited-availability concepts stocked by between 1 and 5 stores. Thirty
+	concepts appear in each of 1, 2, 3, and 4 stores, and 60 appear in 5 stores;
+	the deterministic assignment gives every store exactly 50 limited concepts.
+- 286 reusable Tag definitions covering all 2,285 Tag-to-Product memberships,
+	with normalized default units and shopping quantities. Common defaults are
+	larger than the prior catalog, including 12 eggs, 2 pounds of bananas, 2
+	pounds of chicken, and 1.5 pounds of ground beef.
+- Ordered Product modifiers such as `origin: washington`, `origin: chile`,
+	`brand: barilla`, `in season`, and `on sale`. Honeycrisp origins are balanced
+	between Washington, Chile, and no origin. Branded Products draw sparsely from
+	two brands; Greek yogurt, orange juice, and peanut butter draw from three.
+	These variants are deterministic for the same seed and Store.
+	`on sale` matches the current Price's sale flag, and `in season` is derived
+	after seeding for Products with configured seasonal curves by fitting each
+	complete archived-plus-current price series and comparing the current month
+	with the model's low-price months. Seed classifications remain separate Tag
+	memberships.
 - Explicit multiword tags such as `honeycrisp apple` and `ground beef`, stored
 	as single tag values.
-- 311 archived Prices per Product, or 124,400 `price_history` rows total.
+- 311 archived Prices per Product, or 223,920 `price_history` rows total.
 - One Product-owned `currentPrice` containing the final generated observation,
-	for 124,800 generated Prices across current values and history.
+	for 224,640 generated Prices across current values and history.
 
 Generated prices are deterministic for the same seed, cutoff, Product, and
-Store. They include small weekly and per-Store differences, occasional
-promotions labeled with `sale: true`, and seasonal curves for relevant produce.
-Honeycrisp Apples follow the documented `lbs`/quantity `1.0` contract and are
-least expensive around the fall harvest.
+Store. Explicit Store profiles range from `0.85` for Food 4 Less to `1.15` for
+Gerrards, with deterministic Product-level jitter and wider weekly and
+observation changes. Each observation has a 3.5% sale chance; a sale reduces
+that observation's regular generated price by 15-30%. Seasonal curves remain
+for relevant produce. Honeycrisp Apples follow the documented `lbs`/quantity
+`1.0` Product contract and are least expensive around the fall harvest.
+
+As a curation reference rather than a hard-coded optimizer target, default
+quantities for milk, eggs, bread, bananas, and chicken total about `$23.93` at
+their template base prices before Store profiles, temporal variation,
+seasonality, or sales. On the development Windows environment, the fixed seed
+above takes roughly two minutes because the configured seasonal Products are
+classified with Prophet.
 
 ### CSV export
 
@@ -477,10 +700,11 @@ even when it is called from another working directory:
 .\export-catalog.ps1
 ```
 
-The command replaces four snapshots in `exports/`: `stores.csv`,
-`products.csv`, `product_tags.csv`, and `price_history.csv`. Route tables are
-not included. Override either path when needed; quoted paths with spaces are
-supported:
+The command replaces six snapshots in `exports/`: `tags.csv`, `stores.csv`,
+`products.csv`, `tag_products.csv`, `product_modifiers.csv`, and
+`price_history.csv`. A successful export removes the obsolete
+`product_tags.csv`. Route tables are not included. Override either path when
+needed; quoted paths with spaces are supported:
 
 ```powershell
 .\export-catalog.ps1 `
@@ -502,13 +726,17 @@ A missing database path fails without creating an empty SQLite database.
 ### Validation
 
 ```powershell
+npm run test:frontend -- --runInBand
+npm run typecheck:tests
+npm run typecheck
 python -m pytest backend/tests/test_export_csv.py -q
 python -m pytest backend/tests/test_contract.py -q
 python -m pytest backend/tests/test_seed.py -q
-npx --yes --package typescript tsc --noEmit --strict --target ES2020 --module ES2020 --lib ES2020,DOM backend/queries.ts
+npx --yes --package typescript tsc --ignoreConfig --noEmit --strict --target ES2020 --module ES2020 --lib ES2020,DOM backend/queries.ts
 ```
 
-This backend implements database initialization, health checks, Shopping List
-CRUD, matrix contracts, and on-demand ranked route optimization. Product,
-Store, and persisted Route CRUD, `createRoute`, and the concrete live ArcGIS
-network/cache provider remain future work.
+This backend implements database initialization, Shopping List CRUD and Active
+lifecycle, cancellable global route generations, persisted ranked candidates,
+matrix contracts, and an offline demo provider. Product/Store CRUD, direct
+persisted Route mutation, and a concrete live ArcGIS network/cache provider
+remain future work.

@@ -16,11 +16,17 @@ DEFAULT_DATABASE_PATH = PROJECT_ROOT / "cartograph.db"
 DEFAULT_OUTPUT_DIRECTORY = PROJECT_ROOT / "exports"
 
 EXPORT_QUERIES = {
+    "tags": "SELECT * FROM tags ORDER BY tag",
     "stores": "SELECT * FROM stores ORDER BY id",
     "products": "SELECT * FROM products ORDER BY id",
-    "product_tags": "SELECT * FROM product_tags ORDER BY product_id, position",
+    "tag_products": "SELECT * FROM tag_products ORDER BY tag, product_id",
+    "product_modifiers": (
+        "SELECT * FROM product_modifiers ORDER BY product_id, position"
+    ),
     "price_history": "SELECT * FROM price_history ORDER BY product_id, date",
 }
+
+LEGACY_EXPORT_FILENAMES = ("product_tags.csv",)
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,6 +103,9 @@ def export_catalog_to_csv(
         }
     finally:
         connection.close()
+
+    for legacy_filename in LEGACY_EXPORT_FILENAMES:
+        (resolved_output_directory / legacy_filename).unlink(missing_ok=True)
 
     return ExportStats(
         database_path=resolved_database_path,

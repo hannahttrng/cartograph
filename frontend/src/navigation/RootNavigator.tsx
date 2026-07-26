@@ -10,8 +10,7 @@ import { MapScreen } from '../screens/MapScreen';
 import { NearbyDealsScreen } from '../screens/NearbyDealsScreen';
 import { NearbyStoresScreen } from '../screens/NearbyStoresScreen';
 import { NewShoppingListScreen } from '../screens/NewShoppingListScreen';
-import { RouteResultsScreen } from '../screens/RouteResultsScreen';
-import { ShoppingListScreen } from '../screens/ShoppingListScreen';
+import { RoutesScreen } from '../screens/RoutesScreen';
 import { SavedListsScreen } from '../screens/SavedListsScreen';
 import type { RootStackParamList } from './types';
 
@@ -26,11 +25,7 @@ export function RootNavigator() {
       <Stack.Screen component={ImportRecipesScreen} name="ImportRecipes" options={{ headerShown: false }} />
       <Stack.Screen component={NearbyStoresScreen} name="NearbyStores" options={{ headerShown: false }} />
       <Stack.Screen component={SavedListsScreen} name="SavedLists" options={{ headerShown: false }} />
-      <Stack.Screen
-        component={ShoppingListScreen}
-        name="ShoppingList"
-        options={{ headerShown: false }}
-      />
+      <Stack.Screen component={RoutesScreen} name="Routes" options={{ headerShown: false }} />
       <Stack.Screen
         component={NewShoppingListScreen}
         name="NewShoppingList"
@@ -56,11 +51,6 @@ export function RootNavigator() {
           headerTitle: '',
           headerTransparent: true,
         }}
-      />
-      <Stack.Screen
-        component={RouteResultsScreen}
-        name="RouteResults"
-        options={{ headerShown: false }}
       />
     </Stack.Navigator>
   );

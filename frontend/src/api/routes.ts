@@ -1,65 +1,35 @@
 import { USE_MOCK_DATA } from '../constants/config';
 import type {
-  GetRoutesRequest,
-  GetRoutesResponse,
-  RouteCandidateWire,
-  RouteHydrationCatalog,
-  RouteOptimizationResponseWire,
+  RouteCalculationResponse,
+  RouteCandidatesResponse,
 } from '../types/api';
-import type { Route } from '../types/models';
-import { ApiError, apiClient, encodePathId } from './client';
+import { apiClient } from './client';
 import { mockApi } from './mock';
+import { parseRouteCalculation, parseRouteCandidates } from './routeParsers';
 
-const getCatalogEntity = <T>(
-  entities: Readonly<Record<number, T>>,
-  id: number,
-  label: string,
-): T => {
-  const entity = entities[id];
-  if (!entity) {
-    throw new ApiError(`Route ${label} ${id} is missing from the frontend catalog.`, {
-      code: 'ROUTE_CATALOG_MISSING',
-    });
-  }
-  return entity;
-};
-
-const hydrateCandidate = (
-  candidate: RouteCandidateWire,
-  catalog: RouteHydrationCatalog,
-): Route => ({
-  stores: candidate.stores.map((id) => getCatalogEntity(catalog.stores, id, 'store')),
-  products: candidate.products.map((id) => getCatalogEntity(catalog.products, id, 'product')),
-  distance: candidate.distance,
-  time: candidate.time,
-  score: candidate.score,
-});
-
-export const getRoutes = async (request: GetRoutesRequest): Promise<GetRoutesResponse> => {
+export async function getRouteCalculation(): Promise<RouteCalculationResponse> {
   if (USE_MOCK_DATA) {
-    return mockApi.getRoutes(request);
+    return parseRouteCalculation(mockApi.getRouteCalculation());
   }
 
-  if (!request.listId || request.latitude === undefined || request.longitude === undefined) {
-    throw new ApiError('A saved list and current location are required to optimize routes.', {
-      code: 'ROUTE_CONTEXT_REQUIRED',
-    });
-  }
-  if (!request.catalog) {
-    throw new ApiError('The product and store catalog must be loaded before displaying routes.', {
-      code: 'ROUTE_CATALOG_REQUIRED',
-    });
+  const { data } = await apiClient.get<unknown>('/api/v1/route-calculation');
+  return parseRouteCalculation(data);
+}
+
+export async function startRouteCalculation(): Promise<RouteCalculationResponse> {
+  if (USE_MOCK_DATA) {
+    return parseRouteCalculation(mockApi.startRouteCalculation());
   }
 
-  const listId = encodePathId(request.listId, 'Shopping list ID');
-  const { data } = await apiClient.post<RouteOptimizationResponseWire>(
-    `/api/v1/shopping-lists/${listId}/route-candidates`,
-    {
-      latitude: request.latitude,
-      longitude: request.longitude,
-      ...(request.limit === undefined ? {} : { limit: request.limit }),
-    },
-  );
+  const { data } = await apiClient.post<unknown>('/api/v1/route-calculation');
+  return parseRouteCalculation(data);
+}
 
-  return data.candidates.map((candidate) => hydrateCandidate(candidate, request.catalog!));
-};
+export async function getRouteCandidates(): Promise<RouteCandidatesResponse> {
+  if (USE_MOCK_DATA) {
+    return parseRouteCandidates(mockApi.getRouteCandidates());
+  }
+
+  const { data } = await apiClient.get<unknown>('/api/v1/route-candidates');
+  return parseRouteCandidates(data);
+}

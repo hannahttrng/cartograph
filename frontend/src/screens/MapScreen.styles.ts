@@ -1,53 +1,92 @@
 import { StyleSheet } from 'react-native';
 
+import { colors, radius, spacing, typography } from '../theme';
+
 export const styles = StyleSheet.create({
   screen: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#F7F9F6',
     flex: 1,
   },
-  status: {
-    ...StyleSheet.absoluteFill,
-    alignItems: 'center',
-    backgroundColor: '#F4F7F4',
-    justifyContent: 'center',
-  },
-  statusText: {
-    color: '#52606D',
-    fontSize: 14,
-    marginTop: 10,
-  },
-  errorState: {
-    alignItems: 'center',
+  summaryBand: {
     backgroundColor: '#FFFFFF',
-    borderColor: '#D9E2EC',
-    borderRadius: 8,
-    borderWidth: 1,
-    bottom: 16,
+    borderBottomColor: '#DCE3DC',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 18,
+    paddingVertical: 14,
+  },
+  title: {
+    color: '#17231A',
+    fontSize: 21,
+    fontWeight: '700',
+  },
+  subtitle: {
+    color: '#667168',
+    fontSize: 14,
+    marginTop: 3,
+  },
+  mapSurface: {
+    flex: 1,
+  },
+  routeErrorBand: {
+    alignItems: 'center',
+    backgroundColor: '#FFF4F1',
+    borderTopColor: colors.border,
+    borderTopWidth: StyleSheet.hairlineWidth,
     flexDirection: 'row',
-    left: 16,
-    padding: 12,
-    position: 'absolute',
-    right: 16,
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  routeErrorText: {
+    ...typography.body,
+    color: colors.danger,
+    flex: 1,
+  },
+  routeRetryButton: {
+    alignItems: 'center',
+    borderColor: colors.primary,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    justifyContent: 'center',
+    minHeight: 40,
+    paddingHorizontal: spacing.sm,
+  },
+  routeRetryText: {
+    ...typography.bodyStrong,
+    color: colors.primary,
+  },
+  fallbackContent: {
+    paddingBottom: 28,
   },
   errorText: {
-    color: '#B42318',
-    flex: 1,
+    color: '#9A3412',
     fontSize: 14,
     lineHeight: 20,
+    marginHorizontal: 18,
+    marginVertical: 16,
   },
-  retryButton: {
+  actionRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginHorizontal: 18,
+    marginTop: 16,
+  },
+  secondaryButton: {
     alignItems: 'center',
-    borderColor: '#243B53',
-    borderRadius: 8,
+    borderColor: '#173F24',
+    borderRadius: 6,
     borderWidth: 1,
+    flex: 1,
     justifyContent: 'center',
-    marginLeft: 12,
-    minHeight: 40,
-    paddingHorizontal: 14,
+    minHeight: 48,
+    paddingHorizontal: 12,
   },
-  retryButtonText: {
-    color: '#243B53',
-    fontSize: 14,
-    fontWeight: '600',
+  secondaryButtonText: {
+    color: '#173F24',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  pressed: {
+    opacity: 0.72,
   },
 });

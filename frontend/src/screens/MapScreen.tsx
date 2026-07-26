@@ -1,97 +1,204 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { ActivityIndicator, Pressable, Text, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Linking, Pressable, ScrollView, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { getMap, toApiError } from '../api';
 import { RouteMap } from '../components/map/RouteMap';
+import { MapDiagnosticsPanel } from '../components/map/MapDiagnosticsPanel';
+import { RouteDirectionsPanel } from '../components/map/RouteDirectionsPanel';
+import {
+  ARCGIS_WEB_MAP_BROWSER_URL,
+  DEMO_ROUTE_ORIGIN,
+} from '../constants/config';
 import type { RootStackParamList } from '../navigation/types';
-import type { MapRouteData, MapState } from '../types/maps';
-import type { Store } from '../types/models';
+import type {
+  ArcGISMapDiagnostic,
+  MapRouteData,
+  MapRouteError,
+  MapRouteResult,
+  MapState,
+} from '../types/maps';
 import { styles } from './MapScreen.styles';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Map'>;
+type MapStoreInput = RootStackParamList['Map']['route']['stores'][number];
+const MAX_MAP_DIAGNOSTICS = 24;
 
 export function MapScreen({ route }: Props) {
-  const { bottom } = useSafeAreaInsets();
   const { route: selectedRoute, routeId } = route.params;
-  const fallbackMapData = useMemo<MapRouteData>(
+  const mapData = useMemo<MapRouteData>(
     () => ({
       routeId: routeId ?? 'local-preview',
-      stores: selectedRoute.stores,
-      distance: selectedRoute.distance,
-      time: selectedRoute.time,
-      polyline: {
-        points: selectedRoute.stores.map(({ latitude, longitude }: Store) => ({
-          latitude,
-          longitude,
-        })),
-      },
+      origin: { ...DEMO_ROUTE_ORIGIN },
+      stops: selectedRoute.stores.map((
+        { address, latitude, longitude, name }: MapStoreInput,
+        index: number,
+      ) => ({
+        address,
+        ...(latitude != null && longitude != null
+          ? { coordinate: { latitude, longitude } }
+          : {}),
+        name,
+        sequence: index + 1,
+      })),
+      estimatedDistanceMiles: selectedRoute.distance,
+      estimatedTimeMinutes: selectedRoute.time,
     }),
     [routeId, selectedRoute],
   );
-  const [mapData, setMapData] = useState<MapRouteData>(fallbackMapData);
-  const [isLoading, setIsLoading] = useState(Boolean(routeId));
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-
-  const loadMap = useCallback(async () => {
-    if (!routeId) {
-      setMapData(fallbackMapData);
-      setErrorMessage(null);
-      setIsLoading(false);
-      return;
-    }
-
-    setIsLoading(true);
-    setErrorMessage(null);
-
-    try {
-      const response = await getMap(routeId);
-      setMapData({
-        ...response,
-        stores: response.stores.length > 0 ? response.stores : fallbackMapData.stores,
-      });
-    } catch (error: unknown) {
-      setMapData(fallbackMapData);
-      setErrorMessage(toApiError(error).message);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [fallbackMapData, routeId]);
+  const [mapState, setMapState] = useState<MapState>('loadingMap');
+  const [mapErrorMessage, setMapErrorMessage] = useState<string | null>(null);
+  const [routeError, setRouteError] = useState<MapRouteError | null>(null);
+  const [routeResult, setRouteResult] = useState<MapRouteResult | null>(null);
+  const [mapDiagnostics, setMapDiagnostics] = useState<readonly ArcGISMapDiagnostic[]>([]);
+  const [firstDiagnosticFailure, setFirstDiagnosticFailure] =
+    useState<ArcGISMapDiagnostic | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
-    void loadMap();
-  }, [loadMap]);
+    setMapState('loadingMap');
+    setMapErrorMessage(null);
+    setRouteError(null);
+    setRouteResult(null);
+    setMapDiagnostics([]);
+    setFirstDiagnosticFailure(null);
+  }, [mapData]);
 
-  const mapState: MapState = isLoading
-    ? 'loading'
-    : errorMessage
-      ? 'mapUnavailable'
-      : 'routeSelected';
+  const retryMap = useCallback(() => {
+    setMapState('loadingMap');
+    setMapErrorMessage(null);
+    setRouteError(null);
+    setRouteResult(null);
+    setMapDiagnostics([]);
+    setFirstDiagnosticFailure(null);
+    setReloadKey((currentKey) => currentKey + 1);
+  }, []);
+
+  const openInBrowser = useCallback(async () => {
+    try {
+      await Linking.openURL(ARCGIS_WEB_MAP_BROWSER_URL);
+    } catch {
+      setMapErrorMessage('The ArcGIS Web Map could not be opened in a browser.');
+      setMapState('mapUnavailable');
+    }
+  }, []);
+
+  const distance = routeResult?.totalDistanceMiles ?? mapData.estimatedDistanceMiles;
+  const time = routeResult?.totalTimeMinutes ?? mapData.estimatedTimeMinutes;
+  const summary = `${mapData.stops.length} ${mapData.stops.length === 1 ? 'stop' : 'stops'} - ${distance.toFixed(1)} mi - ${Math.round(time)} min`;
+  const routeErrorMessage = routeError
+    ? [
+        routeError.stopSequence === undefined
+          ? null
+          : `Stop ${routeError.stopSequence}${routeError.stopName ? ` (${routeError.stopName})` : ''}`,
+        routeError.message,
+      ].filter(Boolean).join(': ')
+    : null;
+  const routeMap = (
+    <RouteMap
+      mapData={mapData}
+      onDiagnostic={(diagnostic) => {
+        setMapDiagnostics((current) =>
+          [...current, diagnostic].slice(-MAX_MAP_DIAGNOSTICS)
+        );
+        if (diagnostic.status === 'failed') {
+          setFirstDiagnosticFailure((current) => current ?? diagnostic);
+        }
+      }}
+      onMapError={(message) => {
+        setMapErrorMessage(message);
+        setMapState('mapUnavailable');
+      }}
+      onMapLoadStart={() => {
+        setMapErrorMessage(null);
+        setRouteError(null);
+        setRouteResult(null);
+        setMapDiagnostics([]);
+        setFirstDiagnosticFailure(null);
+        setMapState('loadingMap');
+      }}
+      onMapReady={() => setMapState('solvingRoute')}
+      onRouteError={(error) => {
+        setRouteError(error);
+        setRouteResult(null);
+        setMapState('routeUnavailable');
+      }}
+      onRouteSolved={(result) => {
+        setRouteError(null);
+        setRouteResult(result);
+        setMapState('routeReady');
+      }}
+      onRouteSolving={() => setMapState('solvingRoute')}
+      reloadKey={reloadKey}
+      state={mapState}
+    />
+  );
+
+  if (mapState === 'mapUnavailable') {
+    return (
+      <SafeAreaView edges={['bottom']} style={styles.screen}>
+        <ScrollView contentContainerStyle={styles.fallbackContent}>
+          <View style={styles.summaryBand}>
+            <Text accessibilityRole="header" style={styles.title}>Route map</Text>
+            <Text style={styles.subtitle}>{summary}</Text>
+          </View>
+          <Text accessibilityLiveRegion="assertive" style={styles.errorText}>
+            {mapErrorMessage ?? 'The interactive map is unavailable.'} Your route details are shown below.
+          </Text>
+          {routeMap}
+          <View style={styles.actionRow}>
+            <Pressable
+              accessibilityRole="button"
+              onPress={retryMap}
+              style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}
+            >
+              <Text style={styles.secondaryButtonText}>Retry</Text>
+            </Pressable>
+            <Pressable
+              accessibilityLabel="Open ArcGIS map in browser"
+              accessibilityRole="button"
+              onPress={() => void openInBrowser()}
+              style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}
+            >
+              <Text style={styles.secondaryButtonText}>Open in browser</Text>
+            </Pressable>
+          </View>
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
 
   return (
-    <View style={styles.screen}>
-      <RouteMap mapData={mapData} state={mapState} />
-
-      {isLoading ? (
-        <View pointerEvents="none" style={styles.status}>
-          <ActivityIndicator color="#243B53" />
-          <Text accessibilityLiveRegion="polite" style={styles.statusText}>
-            Loading route data...
+    <SafeAreaView edges={['bottom']} style={styles.screen}>
+      <View style={styles.summaryBand}>
+        <Text accessibilityRole="header" style={styles.title}>Route map</Text>
+        <Text style={styles.subtitle}>{summary}</Text>
+      </View>
+      <View style={styles.mapSurface}>{routeMap}</View>
+      <MapDiagnosticsPanel
+        diagnostics={mapDiagnostics}
+        firstFailure={firstDiagnosticFailure}
+      />
+      {routeErrorMessage ? (
+        <View style={styles.routeErrorBand}>
+          <Text accessibilityLiveRegion="assertive" style={styles.routeErrorText}>
+            {routeErrorMessage}
           </Text>
-        </View>
-      ) : null}
-
-      {errorMessage ? (
-        <View style={[styles.errorState, { bottom: bottom + 16 }]}>
-          <Text accessibilityLiveRegion="assertive" numberOfLines={2} style={styles.errorText}>
-            {errorMessage}
-          </Text>
-          <Pressable accessibilityRole="button" onPress={loadMap} style={styles.retryButton}>
-            <Text style={styles.retryButtonText}>Try Again</Text>
+          <Pressable
+            accessibilityRole="button"
+            onPress={retryMap}
+            style={({ pressed }) => [styles.routeRetryButton, pressed && styles.pressed]}
+          >
+            <Text style={styles.routeRetryText}>Retry route</Text>
           </Pressable>
         </View>
       ) : null}
-    </View>
+      {routeResult ? (
+        <RouteDirectionsPanel
+          key={`${mapData.routeId}-${reloadKey}`}
+          result={routeResult}
+        />
+      ) : null}
+    </SafeAreaView>
   );
 }

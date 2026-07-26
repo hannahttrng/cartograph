@@ -1,34 +1,44 @@
 import { StyleSheet, Text, View } from 'react-native';
 
 import type { MapRouteData } from '../../types/maps';
-import { toStoreMarker } from './StoreMarker';
 
 interface RouteMapFallbackProps {
   mapData: MapRouteData;
 }
 
 export function RouteMapFallback({ mapData }: RouteMapFallbackProps) {
-  const markers = mapData.stores.map((store, index) => toStoreMarker(store, index + 1));
+  const stops = [
+    { key: 'origin-start', label: 'Start', name: mapData.origin.label },
+    ...mapData.stops.map((stop) => ({
+      key: `store-${stop.sequence}-${stop.name}`,
+      label: String(stop.sequence),
+      name: stop.name,
+      address: stop.address,
+    })),
+    { key: 'origin-return', label: 'Return', name: mapData.origin.label },
+  ];
 
   return (
     <View style={styles.container}>
       <View style={styles.metrics}>
         <View style={styles.metric}>
-          <Text style={styles.metricValue}>{mapData.distance.toFixed(1)} mi</Text>
+          <Text style={styles.metricValue}>{mapData.estimatedDistanceMiles.toFixed(1)} mi</Text>
           <Text style={styles.metricLabel}>Distance</Text>
         </View>
         <View style={styles.metric}>
-          <Text style={styles.metricValue}>{Math.round(mapData.time)} min</Text>
+          <Text style={styles.metricValue}>{Math.round(mapData.estimatedTimeMinutes)} min</Text>
           <Text style={styles.metricLabel}>Travel time</Text>
         </View>
       </View>
-      <Text style={styles.title}>Store Sequence</Text>
-      {markers.map((marker) => (
-        <View key={marker.id} style={styles.storeRow}>
-          <Text style={styles.storeNumber}>{marker.sequence}</Text>
+      <Text style={styles.title}>Route sequence</Text>
+      {stops.map((stop) => (
+        <View key={stop.key} style={styles.storeRow}>
+          <Text style={styles.storeNumber}>{stop.label}</Text>
           <View style={styles.storeInfo}>
-            <Text style={styles.storeName}>{marker.name}</Text>
-            <Text style={styles.storeAddress}>{marker.address}</Text>
+            <Text style={styles.storeName}>{stop.name}</Text>
+            {'address' in stop ? (
+              <Text style={styles.storeAddress}>{stop.address}</Text>
+            ) : null}
           </View>
         </View>
       ))}
@@ -74,13 +84,13 @@ const styles = StyleSheet.create({
     backgroundColor: '#E6F6F4',
     borderRadius: 14,
     color: '#0F766E',
-    fontSize: 13,
+    fontSize: 11,
     fontWeight: '600',
     height: 28,
     lineHeight: 28,
     overflow: 'hidden',
     textAlign: 'center',
-    width: 28,
+    width: 48,
   },
   storeInfo: {
     flex: 1,

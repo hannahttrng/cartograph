@@ -16,3 +16,4 @@ cartograph.db-shm
 cartograph.db-wal
 node_modules/
 /exports/
+/coverage/

@@ -1,4 +1,15 @@
-import type { Route } from '../types/models';
+import type { EntityId } from '../types/api';
+
+interface MapRouteInput {
+  readonly stores: ReadonlyArray<{
+    readonly name: string;
+    readonly address: string;
+    readonly latitude?: number | null;
+    readonly longitude?: number | null;
+  }>;
+  readonly distance: number;
+  readonly time: number;
+}
 
 export type RootStackParamList = {
   Home: undefined;
@@ -7,22 +18,20 @@ export type RootStackParamList = {
   ImportRecipes: undefined;
   NearbyStores: undefined;
   SavedLists: undefined;
-  ShoppingList: undefined;
+  Routes: undefined;
+  AiAssistant: undefined;
+  Account: undefined;
   NewShoppingList:
     | {
         initialItems?: string[];
+        initialTags?: string[];
+        listId?: EntityId;
         title?: string;
       }
     | undefined;
-  AiAssistant: undefined;
-  Account: undefined;
   NearbyDeals: undefined;
   Map: {
-    route: Route;
+    route: MapRouteInput;
     routeId?: string;
-  };
-  RouteResults: {
-    items: string[];
-    listId?: string;
   };
 };

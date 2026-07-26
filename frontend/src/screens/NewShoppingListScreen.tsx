@@ -1,228 +1,560 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Keyboard, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import {
+  ActivityIndicator,
+  Alert,
+  Keyboard,
+  Pressable,
+  ScrollView,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import BuildListMascot from '../../assets/svg icons/Group 15.svg';
-import DairyIcon from '../../assets/svg icons/dairy 1.svg';
-import MeatIcon from '../../assets/svg icons/meat 1.svg';
-import ProduceIcon from '../../assets/svg icons/produce 1.svg';
-import { AppBottomNav, BackButton, DesignIcon, FilterTabs } from '../components/common';
+import {
+  createShoppingList,
+  deleteShoppingList,
+  getShoppingList,
+  listCatalogTags,
+  listTagModifiers,
+  replaceShoppingList,
+  startRouteCalculation,
+  toApiError,
+  updateShoppingListName,
+} from '../api';
+import { AppBottomNav, BackButton, DesignIcon } from '../components/common';
+import { ModifierSelector } from '../components/list/ModifierSelector';
 import type { RootStackParamList } from '../navigation/types';
 import type {
-  SavedShoppingList,
-  SavedShoppingListItem,
-  ShoppingListCollection,
-} from '../types/savedLists';
-import {
-  loadSavedListLibrary,
-  saveSavedListLibrary,
-  type SavedListLibrary,
-} from '../utils/savedListsStorage';
+  CatalogTag,
+  ShoppingListItemInput,
+  ShoppingListResponse,
+} from '../types/api';
+import { formatTagLabel } from '../utils/tags';
 import { styles } from './NewShoppingListScreen.styles';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'NewShoppingList'>;
-type Category = 'all' | 'dairy' | 'produce' | 'meat' | 'pantry' | 'bakery';
 
-const categories = [
-  { label: 'All items', value: 'all' },
-  { icon: <DairyIcon height={18} width={15} />, label: 'Dairy', value: 'dairy' },
-  { icon: <ProduceIcon height={14} width={13} />, label: 'Produce', value: 'produce' },
-  { icon: <MeatIcon height={18} width={18} />, label: 'Meat', value: 'meat' },
-  { label: 'Pantry', value: 'pantry' },
-  { label: 'Bakery', value: 'bakery' },
-] as const;
+const NEW_LIST_NAME = 'Untitled list';
 
-const normalizeValue = (value: string): string => value.trim().replace(/\s+/g, ' ');
-const itemDefaults: Record<string, { quantity: number; unit: string }> = {
-  bacon: { quantity: 3, unit: 'lb' },
-  eggs: { quantity: 1, unit: 'dozen' },
-  ranch: { quantity: 1, unit: 'bottle' },
-  'soy milk': { quantity: 1, unit: 'gal' },
+const normalizeValue = (value: string): string =>
+  value.trim().replace(/\s+/g, ' ');
+
+const normalizeTag = (value: string): string =>
+  normalizeValue(value).toLowerCase();
+
+const cloneItems = (
+  items: readonly ShoppingListItemInput[],
+): ShoppingListItemInput[] =>
+  items.map((item) => ({
+    ...item,
+    modifiers: [...(item.modifiers ?? [])],
+  }));
+
+const itemsMatch = (
+  first: readonly ShoppingListItemInput[],
+  second: readonly ShoppingListItemInput[],
+): boolean => JSON.stringify(first) === JSON.stringify(second);
+
+const itemDetails = (
+  item: ShoppingListItemInput,
+  catalog: readonly CatalogTag[],
+): string => {
+  const catalogTag = catalog.find((candidate) => candidate.tag === item.tag);
+  const quantity = item.quantity ?? catalogTag?.defaultQuantity;
+  const unit = item.unit ?? catalogTag?.defaultUnit;
+  return quantity === undefined || unit === undefined
+    ? 'Defaults applied when saved'
+    : `${quantity} ${unit}`;
 };
-const units = ['each', 'lb', 'oz', 'gal', 'dozen', 'bottle'];
+
+interface PersistDraftResult {
+  savedList: ShoppingListResponse;
+  routeCalculationTriggered: boolean;
+}
+
+interface ModifierOptionsState {
+  error: string | null;
+  isLoading: boolean;
+  options: readonly string[];
+}
 
 export function NewShoppingListScreen({ navigation, route }: Props) {
-  const initialItems = route.params?.initialItems ?? [];
-  const listName = route.params?.title ?? 'Untitled list';
+  const listId = route.params?.listId;
+  const [catalog, setCatalog] = useState<readonly CatalogTag[]>([]);
+  const [baseline, setBaseline] = useState<ShoppingListResponse | null>(null);
+  const [listName, setListName] = useState(route.params?.title ?? NEW_LIST_NAME);
   const [itemName, setItemName] = useState('');
-  const [category, setCategory] = useState<Category>('all');
-  const [items, setItems] = useState<SavedShoppingListItem[]>(() =>
-    (initialItems.length > 0 ? initialItems : ['Soy Milk', 'Eggs', 'Bacon', 'Ranch']).map((name) => ({ checked: false, name, quantity: itemDefaults[name.toLocaleLowerCase()]?.quantity ?? 1, unit: itemDefaults[name.toLocaleLowerCase()]?.unit ?? 'each', unitPrice: 0 })),
-  );
-  const [collections, setCollections] = useState<ShoppingListCollection[]>([]);
-  const [savedLists, setSavedLists] = useState<SavedShoppingList[]>([]);
-  const [selectedCollectionId, setSelectedCollectionId] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [isSaving, setIsSaving] = useState(false);
+  const [items, setItems] = useState<ShoppingListItemInput[]>([]);
+  const [expandedItemTag, setExpandedItemTag] = useState<string | null>(null);
+  const [modifierOptionsByTag, setModifierOptionsByTag] = useState<
+    Readonly<Record<string, ModifierOptionsState>>
+  >({});
+  const [unresolvedItems, setUnresolvedItems] = useState<string[]>([]);
+  const [isActive, setIsActive] = useState(true);
+  const [itemError, setItemError] = useState<string | null>(null);
+  const [requestError, setRequestError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isMutating, setIsMutating] = useState(false);
+  const mutationLocked = useRef(false);
+  const isMounted = useRef(true);
 
   const normalizedListName = useMemo(() => normalizeValue(listName), [listName]);
-  const normalizedItemName = useMemo(() => normalizeValue(itemName), [itemName]);
-  const canAddItem = Boolean(normalizedItemName);
-  const canSave =
-    Boolean(normalizedListName) && items.length > 0 && !isSaving;
+  const normalizedItemName = useMemo(() => normalizeTag(itemName), [itemName]);
+  const matchingTags = useMemo(
+    () =>
+      normalizedItemName
+        ? catalog
+            .filter(
+              (tag) =>
+                tag.tag.includes(normalizedItemName) &&
+                !items.some((item) => item.tag === tag.tag),
+            )
+            .slice(0, 6)
+        : [],
+    [catalog, items, normalizedItemName],
+  );
+  const canAddItem = Boolean(normalizedItemName) && !isLoading && !isMutating;
+  const canPersist =
+    Boolean(normalizedListName) && items.length > 0 && !isLoading && !isMutating;
 
   useEffect(() => {
-    const loadLibrary = async () => {
+    isMounted.current = true;
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    const loadData = async () => {
+      setIsLoading(true);
+      setRequestError(null);
+
       try {
-        const library = await loadSavedListLibrary();
-        setCollections(library.collections);
-        setSavedLists(library.lists);
-        setSelectedCollectionId(library.collections[0]?.id ?? null);
-      } catch {
-        setError('Saved lists could not be loaded.');
+        const [loadedCatalog, loadedList] = await Promise.all([
+          listCatalogTags(),
+          listId === undefined ? Promise.resolve(null) : getShoppingList(listId),
+        ]);
+        if (!active) {
+          return;
+        }
+
+        setCatalog(loadedCatalog);
+        if (loadedList) {
+          setBaseline(loadedList);
+          setListName(loadedList.name);
+          setItems(cloneItems(loadedList.items));
+          setIsActive(loadedList.active);
+        } else {
+          const catalogTags = new Set(loadedCatalog.map((tag) => tag.tag));
+          const initialCandidates = [
+            ...(route.params?.initialTags ?? []),
+            ...(route.params?.initialItems ?? []),
+          ];
+          const matchedTags = [...new Set(initialCandidates.map(normalizeTag))]
+            .filter((tag) => catalogTags.has(tag));
+          setItems(matchedTags.map((tag) => ({ tag, modifiers: [] })));
+          setUnresolvedItems(
+            (route.params?.initialItems ?? []).filter(
+              (item: string) => !catalogTags.has(normalizeTag(item)),
+            ),
+          );
+        }
+      } catch (error: unknown) {
+        if (active) {
+          setRequestError(toApiError(error).message);
+        }
+      } finally {
+        if (active) {
+          setIsLoading(false);
+        }
       }
     };
 
-    void loadLibrary();
+    void loadData();
+    return () => {
+      active = false;
+    };
+  }, [listId, route.params?.initialItems, route.params?.initialTags]);
+
+  const loadModifierOptions = useCallback(async (tag: string) => {
+    setModifierOptionsByTag((current) => ({
+      ...current,
+      [tag]: {
+        error: null,
+        isLoading: true,
+        options: current[tag]?.options ?? [],
+      },
+    }));
+    try {
+      const options = await listTagModifiers(tag);
+      if (isMounted.current) {
+        setModifierOptionsByTag((current) => ({
+          ...current,
+          [tag]: { error: null, isLoading: false, options },
+        }));
+      }
+    } catch (error: unknown) {
+      if (isMounted.current) {
+        setModifierOptionsByTag((current) => ({
+          ...current,
+          [tag]: {
+            error: toApiError(error).message,
+            isLoading: false,
+            options: current[tag]?.options ?? [],
+          },
+        }));
+      }
+    }
   }, []);
 
-  const persistLibrary = useCallback(async (library: SavedListLibrary): Promise<boolean> => {
-    setIsSaving(true);
-    setError(null);
+  const toggleModifierSelector = useCallback((tag: string) => {
+    setExpandedItemTag((current) => current === tag ? null : tag);
+    if (!modifierOptionsByTag[tag]) {
+      void loadModifierOptions(tag);
+    }
+  }, [loadModifierOptions, modifierOptionsByTag]);
+
+  const toggleItemModifier = useCallback((tag: string, modifier: string) => {
+    setItems((currentItems) => currentItems.map((item) => {
+      if (item.tag !== tag) return item;
+      const nextModifiers = new Set(item.modifiers ?? []);
+      if (nextModifiers.has(modifier)) {
+        nextModifiers.delete(modifier);
+      } else {
+        nextModifiers.add(modifier);
+      }
+      return { ...item, modifiers: [...nextModifiers].sort() };
+    }));
+  }, []);
+
+  const addItem = useCallback(
+    (value = itemName) => {
+      const tagId = normalizeTag(value);
+      if (!tagId) {
+        setItemError('Enter an item name.');
+        return;
+      }
+      const catalogTag = catalog.find((tag) => tag.tag === tagId);
+      if (!catalogTag) {
+        setItemError(`"${normalizeValue(value)}" is not in the grocery catalog.`);
+        return;
+      }
+      if (items.some((item) => item.tag === catalogTag.tag)) {
+        setItemError(`${formatTagLabel(catalogTag.tag)} is already on this list.`);
+        return;
+      }
+
+      setItems((currentItems) => [
+        ...currentItems,
+        { tag: catalogTag.tag, modifiers: [] },
+      ]);
+      setUnresolvedItems((currentItems) =>
+        currentItems.filter((item) => normalizeTag(item) !== tagId),
+      );
+      setItemName('');
+      setItemError(null);
+      setRequestError(null);
+      Keyboard.dismiss();
+    },
+    [catalog, itemName, items],
+  );
+
+  const persistDraft = useCallback(async (
+    options: { forceActive?: boolean } = {},
+  ): Promise<PersistDraftResult | null> => {
+    if (!canPersist || mutationLocked.current) {
+      return null;
+    }
+
+    mutationLocked.current = true;
+    setIsMutating(true);
+    setRequestError(null);
+    Keyboard.dismiss();
 
     try {
-      await saveSavedListLibrary(library);
-      setCollections(library.collections);
-      setSavedLists(library.lists);
-      return true;
-    } catch {
-      setError('Saved lists could not be updated.');
-      return false;
+      let savedList: ShoppingListResponse;
+      let routeCalculationTriggered: boolean;
+      const desiredActive = options.forceActive ? true : isActive;
+      if (!baseline) {
+        savedList = await createShoppingList({
+          active: desiredActive,
+          items: cloneItems(items),
+          name: normalizedListName,
+        });
+        routeCalculationTriggered = desiredActive;
+      } else {
+        const itemsChanged = !itemsMatch(items, baseline.items);
+        const activeChanged = desiredActive !== baseline.active;
+        routeCalculationTriggered = activeChanged || (itemsChanged && desiredActive);
+        if (itemsChanged || activeChanged) {
+        savedList = await replaceShoppingList(baseline.id, {
+          active: desiredActive,
+          items: cloneItems(items),
+          name: normalizedListName,
+        });
+        } else if (normalizedListName !== baseline.name) {
+          savedList = await updateShoppingListName(baseline.id, {
+            name: normalizedListName,
+          });
+        } else {
+          savedList = baseline;
+        }
+      }
+
+      setBaseline(savedList);
+      setListName(savedList.name);
+      setItems(cloneItems(savedList.items));
+      setIsActive(savedList.active);
+      return { savedList, routeCalculationTriggered };
+    } catch (error: unknown) {
+      setRequestError(toApiError(error).message);
+      return null;
     } finally {
-      setIsSaving(false);
+      mutationLocked.current = false;
+      setIsMutating(false);
     }
-  }, []);
+  }, [baseline, canPersist, isActive, items, normalizedListName]);
 
-  const addItem = useCallback(() => {
-    if (!canAddItem) {
-      setError('Enter an item name.');
+  const saveForLater = useCallback(async () => {
+    const result = await persistDraft();
+    if (result) {
+      navigation.navigate('SavedLists');
+    }
+  }, [navigation, persistDraft]);
+
+  const findBestRoute = useCallback(async () => {
+    const result = await persistDraft({ forceActive: true });
+    if (!result) return;
+    if (!result.routeCalculationTriggered) {
+      mutationLocked.current = true;
+      setIsMutating(true);
+      try {
+        await startRouteCalculation();
+      } catch (error: unknown) {
+        setRequestError(toApiError(error).message);
+        return;
+      } finally {
+        mutationLocked.current = false;
+        setIsMutating(false);
+      }
+    }
+    navigation.navigate('Routes');
+  }, [navigation, persistDraft]);
+
+  const confirmDelete = useCallback(() => {
+    if (!baseline || isMutating) {
       return;
     }
-
-    const alreadyExists = items.some(
-      (item) => item.name.toLocaleLowerCase() === normalizedItemName.toLocaleLowerCase(),
+    Alert.alert(
+      'Delete shopping list?',
+      'This removes the list from Cartograph and cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            void (async () => {
+              if (mutationLocked.current) {
+                return;
+              }
+              mutationLocked.current = true;
+              setIsMutating(true);
+              setRequestError(null);
+              try {
+                await deleteShoppingList(baseline.id);
+                navigation.navigate('SavedLists');
+              } catch (error: unknown) {
+                setRequestError(toApiError(error).message);
+              } finally {
+                mutationLocked.current = false;
+                setIsMutating(false);
+              }
+            })();
+          },
+        },
+      ],
     );
-    if (alreadyExists) {
-      setError(`${normalizedItemName} is already on this list.`);
-      return;
-    }
+  }, [baseline, isMutating, navigation]);
 
-    setItems((currentItems) => [
-      ...currentItems,
-      { checked: false, name: normalizedItemName, quantity: 1, unit: 'each', unitPrice: 0 },
-    ]);
-    setItemName('');
-    setError(null);
-  }, [canAddItem, items, normalizedItemName]);
-
-  const updateItem = useCallback((name: string, update: Partial<SavedShoppingListItem>) => {
-    setItems((currentItems) => currentItems.map((item) => item.name === name ? { ...item, ...update } : item));
-  }, []);
-
-  const cycleUnit = useCallback((item: SavedShoppingListItem) => {
-    const currentIndex = units.indexOf(item.unit ?? 'each');
-    updateItem(item.name, { unit: units[(currentIndex + 1) % units.length] });
-  }, [updateItem]);
-
-  const saveList = useCallback(async () => {
-    if (!canSave) {
-      setError('Add at least one item before saving.');
-      return;
-    }
-
-    Keyboard.dismiss();
-    const fallbackCollection: ShoppingListCollection = { id: 'collection-saved', name: 'Saved Lists' };
-    const collectionId = selectedCollectionId ?? collections[0]?.id ?? fallbackCollection.id;
-    const nextCollections = collections.length > 0 ? collections : [fallbackCollection];
-    const savedList: SavedShoppingList = {
-      id: `list-${Date.now()}`,
-      name: normalizedListName,
-      items: items.map((item) => item.name),
-      pricedItems: items,
-      collectionId,
-      updatedAt: new Date().toISOString(),
-    };
-    const wasSaved = await persistLibrary({
-      collections: nextCollections,
-      lists: [savedList, ...savedLists],
-    });
-    if (wasSaved) {
-      navigation.goBack();
-    }
-  }, [canSave, collections, items, navigation, normalizedListName, persistLibrary, savedLists, selectedCollectionId]);
+  if (isLoading) {
+    return (
+      <SafeAreaView edges={['top', 'bottom']} style={styles.screen}>
+        <View style={styles.centeredState}>
+          <ActivityIndicator color="#258043" size="large" />
+          <Text accessibilityLiveRegion="polite" style={styles.loadingText}>
+            Loading the grocery catalog...
+          </Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView edges={['top']} style={styles.screen}>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <View style={styles.designHeader}>
           <BackButton onPress={() => navigation.goBack()} />
-          <View style={styles.headerCopy}><Text accessibilityRole="header" style={styles.designHeading}>Build a List</Text><Text style={styles.designSupporting}>Create your list & save it for future trips.</Text></View>
+          <View style={styles.headerCopy}><Text accessibilityRole="header" style={styles.designHeading}>{baseline ? 'Edit List' : 'Build a List'}</Text><Text style={styles.designSupporting}>Catalog-backed items save directly to Cartograph.</Text></View>
           <Pressable accessibilityLabel="Open profile" onPress={() => navigation.navigate('Account')} style={styles.profileButton}><DesignIcon name="person" size={23} /></Pressable>
         </View>
+
+        <TextInput
+          accessibilityLabel="Shopping list name"
+          editable={!isMutating}
+          onChangeText={setListName}
+          placeholder="List name"
+          style={styles.listNameInput}
+          value={listName}
+        />
 
         <View style={styles.searchInputRow}>
           <DesignIcon name="search" size={20} />
           <TextInput
             accessibilityLabel="Item name"
             onChangeText={setItemName}
-            onSubmitEditing={addItem}
-            placeholder="Add an item (e.g., milk, eggs)"
+            editable={!isMutating}
+            onSubmitEditing={() => addItem()}
+            placeholder="Search catalog items"
             placeholderTextColor="#8A8789"
             style={styles.designInput}
             value={itemName}
           />
-          <Pressable accessibilityLabel="Add item" disabled={!canAddItem} onPress={addItem}><Text style={styles.plus}>＋</Text></Pressable>
+          <Pressable accessibilityLabel="Add item" disabled={!canAddItem} onPress={() => addItem()}><Text style={styles.plus}>+</Text></Pressable>
         </View>
-        <View style={styles.categoryTabs}><FilterTabs<Category> onChange={setCategory} options={categories} value={category} /></View>
+
+        {matchingTags.length > 0 ? (
+          <View accessibilityLabel="Catalog suggestions" style={styles.suggestions}>
+            {matchingTags.map((tag) => (
+              <Pressable
+                accessibilityLabel={`Add ${formatTagLabel(tag.tag)}`}
+                accessibilityRole="button"
+                key={tag.tag}
+                onPress={() => addItem(tag.tag)}
+                style={({ pressed }) => [styles.suggestion, pressed && styles.buttonDisabled]}
+              >
+                <Text style={styles.suggestionName}>{formatTagLabel(tag.tag)}</Text>
+                <Text style={styles.suggestionDetails}>{tag.defaultQuantity} {tag.defaultUnit}</Text>
+              </Pressable>
+            ))}
+          </View>
+        ) : null}
+        {itemError ? <Text accessibilityLiveRegion="polite" style={styles.feedbackText}>{itemError}</Text> : null}
 
         <View style={styles.designListCard}>
-          <View style={styles.listHeader}><Text style={styles.listTitle}>My List ({items.length})</Text><Pressable onPress={() => setItems([])}><Text style={styles.clearAll}>Clear All</Text></Pressable></View>
+          <View style={styles.listHeader}><Text style={styles.listTitle}>My List ({items.length})</Text><Pressable onPress={() => { setItems([]); setExpandedItemTag(null); }}><Text style={styles.clearAll}>Clear All</Text></Pressable></View>
           {items.length > 0 ? (
           <View>
-            {items.map((item) => (
-              <View key={item.name.toLocaleLowerCase()} style={styles.itemRow}>
-                <Pressable accessibilityLabel={`${item.checked ? 'Uncheck' : 'Check'} ${item.name}`} accessibilityRole="checkbox" accessibilityState={{ checked: Boolean(item.checked) }} onPress={() => updateItem(item.name, { checked: !item.checked })} style={[styles.checkbox, item.checked && styles.checkboxChecked]}>{item.checked ? <Text style={styles.checkmark}>✓</Text> : null}</Pressable>
-                <Text style={styles.itemName}>{item.name}</Text>
-                <View style={styles.quantityControl}>
-                  <Pressable accessibilityLabel={`Decrease ${item.name} quantity`} hitSlop={6} onPress={() => updateItem(item.name, { quantity: Math.max(1, (item.quantity ?? 1) - 1) })}><Text style={styles.quantityButton}>−</Text></Pressable>
-                  <Text style={styles.quantity}>{item.quantity ?? 1}</Text>
-                  <Pressable accessibilityLabel={`Increase ${item.name} quantity`} hitSlop={6} onPress={() => updateItem(item.name, { quantity: (item.quantity ?? 1) + 1 })}><Text style={styles.quantityButton}>+</Text></Pressable>
+            {items.map((item) => {
+              const modifierState = modifierOptionsByTag[item.tag];
+              const itemLabel = formatTagLabel(item.tag);
+              return (
+              <View key={item.tag}>
+                <View style={styles.itemRow}>
+                  <View style={[styles.checkbox, styles.checkboxChecked]}>
+                    <Text style={styles.checkmark}>✓</Text>
+                  </View>
+                  <Text style={styles.itemName}>{itemLabel}</Text>
+                  <Text style={styles.itemPrice}>{itemDetails(item, catalog)}</Text>
+                  <Pressable
+                    accessibilityLabel={`Remove ${itemLabel}`}
+                    accessibilityRole="button"
+                    onPress={() => {
+                      setItems((currentItems) =>
+                        currentItems.filter((currentItem) => currentItem.tag !== item.tag),
+                      );
+                      setExpandedItemTag((current) => current === item.tag ? null : current);
+                    }}
+                  >
+                    <Text style={styles.editText}>Remove</Text>
+                  </Pressable>
                 </View>
-                <Pressable accessibilityLabel={`Change ${item.name} unit`} onPress={() => cycleUnit(item)} style={styles.unitButton}><Text numberOfLines={1} style={styles.itemPrice}>{item.unit ?? 'each'}</Text></Pressable>
-                <Pressable
-                  accessibilityLabel={`Remove ${item.name}`}
-                  accessibilityRole="button"
-                  onPress={() =>
-                    setItems((currentItems) =>
-                      currentItems.filter((currentItem) => currentItem.name !== item.name),
-                    )
-                  }
-                >
-                  <Text style={styles.editText}>⌫</Text>
-                </Pressable>
+                <ModifierSelector
+                  disabled={isMutating}
+                  error={modifierState?.error ?? null}
+                  isExpanded={expandedItemTag === item.tag}
+                  isLoading={modifierState?.isLoading ?? false}
+                  itemTag={item.tag}
+                  onRetry={() => void loadModifierOptions(item.tag)}
+                  onToggle={() => toggleModifierSelector(item.tag)}
+                  onToggleModifier={(modifier) => toggleItemModifier(item.tag, modifier)}
+                  options={modifierState?.options ?? []}
+                  selected={item.modifiers ?? []}
+                />
               </View>
-            ))}
+              );
+            })}
           </View>
           ) : <Text style={styles.emptyList}>Add an item to begin your list.</Text>}
         </View>
 
-        <View style={styles.tipCard}><BuildListMascot height={64} width={64} /><Text style={styles.tipText}><Text style={styles.tipStrong}>Tip: Be specific for better results!</Text>{'\n'}Add brands or sizes (e.g., “2% milk”) to get more accurate prices.</Text></View>
+        {unresolvedItems.length > 0 ? (
+          <View style={styles.unresolvedCard}>
+            <Text style={styles.unresolvedTitle}>Review imported items</Text>
+            <Text style={styles.unresolvedText}>These names do not exactly match the current catalog.</Text>
+            {unresolvedItems.map((item) => (
+              <View key={item} style={styles.unresolvedRow}>
+                <Pressable
+                  accessibilityLabel={`Review ${item}`}
+                  accessibilityRole="button"
+                  onPress={() => setItemName(item)}
+                  style={styles.unresolvedNameButton}
+                >
+                  <Text style={styles.unresolvedName}>{item}</Text>
+                </Pressable>
+                <Pressable
+                  accessibilityLabel={`Dismiss ${item}`}
+                  accessibilityRole="button"
+                  onPress={() => setUnresolvedItems((current) => current.filter((value) => value !== item))}
+                >
+                  <Text style={styles.editText}>Dismiss</Text>
+                </Pressable>
+              </View>
+            ))}
+          </View>
+        ) : null}
 
-        <View style={styles.metricsCard}>{['Est. Savings\n$15.53', 'Est. Time\n15 min', 'Est. Stores\n3'].map((metric) => <Text key={metric} style={styles.metricText}>{metric}</Text>)}</View>
+        <View style={styles.tipCard}><BuildListMascot height={64} width={64} /><Text style={styles.tipText}><Text style={styles.tipStrong}>Choose catalog matches.</Text>{'\n'}Units and quantities use catalog defaults unless they came from a saved list.</Text></View>
 
-        {error ? <Text accessibilityLiveRegion="polite" style={styles.feedbackText}>{error}</Text> : null}
-
-        <View style={styles.actionRow}>
-          <Pressable accessibilityLabel="Save shopping list for later" accessibilityRole="button" disabled={!canSave} onPress={() => void saveList()} style={({ pressed }) => [styles.button, styles.saveLaterButton, (!canSave || pressed) && styles.buttonDisabled]}>
-            <Text style={styles.saveLaterText}>{isSaving ? 'Saving…' : 'Save for Later'}</Text>
-          </Pressable>
-          <Pressable accessibilityLabel="Find best route" accessibilityRole="button" disabled={items.length === 0} onPress={() => navigation.navigate('RouteResults', { items: items.map((item) => item.name) })} style={({ pressed }) => [styles.button, styles.routeButton, (items.length === 0 || pressed) && styles.buttonDisabled]}>
-            <Text style={styles.buttonText}>Find Best Route</Text>
+        <View style={styles.activeCard}>
+          <View style={styles.activeCopy}>
+            <Text style={styles.activeTitle}>Active</Text>
+            <Text style={styles.activeDescription}>Include this list in route planning.</Text>
+          </View>
+          <Pressable
+            accessibilityLabel="Shopping list active"
+            accessibilityRole="switch"
+            accessibilityState={{ checked: isActive, disabled: isMutating }}
+            disabled={isMutating}
+            onPress={() => setIsActive((current) => !current)}
+            style={[styles.activeSwitch, isActive && styles.activeSwitchOn]}
+          >
+            <View style={[styles.switchThumb, isActive && styles.switchThumbOn]} />
           </Pressable>
         </View>
+
+        {requestError ? <Text accessibilityLiveRegion="assertive" style={styles.feedbackText}>{requestError}</Text> : null}
+
+        <View style={styles.actionRow}>
+          <Pressable accessibilityLabel="Save shopping list for later" accessibilityRole="button" accessibilityState={{ busy: isMutating, disabled: !canPersist }} disabled={!canPersist} onPress={() => void saveForLater()} style={({ pressed }) => [styles.button, styles.saveLaterButton, (!canPersist || pressed) && styles.buttonDisabled]}>
+            <Text style={styles.saveLaterText}>{isMutating ? 'Saving...' : 'Save for Later'}</Text>
+          </Pressable>
+          <Pressable accessibilityLabel="Find best route" accessibilityRole="button" accessibilityState={{ busy: isMutating, disabled: !canPersist }} disabled={!canPersist} onPress={() => void findBestRoute()} style={({ pressed }) => [styles.button, styles.routeButton, (!canPersist || pressed) && styles.buttonDisabled]}>
+            {isMutating ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.buttonText}>Find Best Route</Text>}
+          </Pressable>
+        </View>
+        {baseline ? (
+          <Pressable accessibilityLabel="Delete shopping list" accessibilityRole="button" disabled={isMutating} onPress={confirmDelete} style={({ pressed }) => [styles.deleteButton, (pressed || isMutating) && styles.buttonDisabled]}>
+            <Text style={styles.deleteButtonText}>Delete list</Text>
+          </Pressable>
+        ) : null}
       </ScrollView>
-      <AppBottomNav active="home" navigation={navigation} />
+      <AppBottomNav active="lists" navigation={navigation} />
     </SafeAreaView>
   );
 }

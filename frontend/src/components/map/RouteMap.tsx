@@ -1,63 +1,87 @@
-import { useEffect, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
-import type { MapRouteData, MapState } from '../../types/maps';
+import type {
+  ArcGISMapDiagnostic,
+  MapRouteData,
+  MapRouteError,
+  MapRouteResult,
+  MapState,
+} from '../../types/maps';
 import { ArcGISMapAdapter } from './ArcGISMapAdapter';
 import { RouteMapFallback } from './RouteMapFallback';
 
 interface RouteMapProps {
   mapData: MapRouteData;
+  onDiagnostic: (diagnostic: ArcGISMapDiagnostic) => void;
+  onMapError: (message: string) => void;
+  onMapLoadStart: () => void;
+  onMapReady: () => void;
+  onRouteError: (error: MapRouteError) => void;
+  onRouteSolved: (result: MapRouteResult) => void;
+  onRouteSolving: () => void;
+  reloadKey: number;
   state: MapState;
 }
 
-export function RouteMap({ mapData, state }: RouteMapProps) {
-  const [mapFailed, setMapFailed] = useState(false);
-
-  useEffect(() => {
-    setMapFailed(false);
-  }, [mapData.routeId]);
-
-  if (state === 'loading') {
-    return (
-      <View style={styles.status}>
-        <Text style={styles.statusText}>Loading route map...</Text>
-      </View>
-    );
-  }
-
-  if (!mapFailed) {
-    return <ArcGISMapAdapter mapData={mapData} onError={() => setMapFailed(true)} />;
+export function RouteMap({
+  mapData,
+  onDiagnostic,
+  onMapError,
+  onMapLoadStart,
+  onMapReady,
+  onRouteError,
+  onRouteSolved,
+  onRouteSolving,
+  reloadKey,
+  state,
+}: RouteMapProps) {
+  if (state === 'mapUnavailable') {
+    return <RouteMapFallback mapData={mapData} />;
   }
 
   return (
-    <View style={styles.fallback}>
-      <Text accessibilityLiveRegion="assertive" style={styles.unavailableText}>
-        Map unavailable. Showing route details instead.
-      </Text>
-      <RouteMapFallback mapData={mapData} />
+    <View style={styles.container}>
+      <ArcGISMapAdapter
+        key={`${mapData.routeId}-${reloadKey}`}
+        mapData={mapData}
+        onDiagnostic={onDiagnostic}
+        onMapError={onMapError}
+        onMapLoadStart={onMapLoadStart}
+        onMapReady={onMapReady}
+        onRouteError={onRouteError}
+        onRouteSolved={onRouteSolved}
+        onRouteSolving={onRouteSolving}
+      />
+      {state === 'loadingMap' || state === 'solvingRoute' ? (
+        <View style={styles.loadingOverlay}>
+          <ActivityIndicator color="#173F24" size="large" />
+          <Text accessibilityLiveRegion="polite" style={styles.statusText}>
+            {state === 'loadingMap' ? 'Loading map...' : 'Calculating directions...'}
+          </Text>
+        </View>
+      ) : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  fallback: {
+  container: {
     flex: 1,
-    padding: 20,
+    minHeight: 320,
   },
-  status: {
+  loadingOverlay: {
     alignItems: 'center',
-    flex: 1,
+    backgroundColor: '#E9EEE8',
+    bottom: 0,
     justifyContent: 'center',
-    padding: 20,
+    left: 0,
+    position: 'absolute',
+    right: 0,
+    top: 0,
   },
   statusText: {
-    color: '#52606D',
+    color: '#344A3A',
     fontSize: 15,
-  },
-  unavailableText: {
-    color: '#52606D',
-    fontSize: 14,
-    lineHeight: 20,
-    marginBottom: 12,
+    marginTop: 12,
   },
 });

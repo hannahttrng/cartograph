@@ -168,7 +168,6 @@ export function HomeScreen({ navigation }: Props) {
             </View>
           ))}
         </View>
-
       </ScrollView>
       <AppBottomNav active="home" navigation={navigation} />
     </SafeAreaView>
@@ -324,52 +323,6 @@ const styles = StyleSheet.create({
     color: '#647067',
     fontFamily: 'Monda_700Bold',
     fontSize: 12,
-  },
-  bottomBar: {
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderColor: '#E5E5E5',
-    borderTopWidth: 1,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    marginTop: 14,
-    minHeight: 74,
-    paddingHorizontal: 16,
-  },
-  bottomItem: {
-    alignItems: 'center',
-    borderRadius: 8,
-    height: 38,
-    justifyContent: 'center',
-    marginHorizontal: 7,
-    width: 38,
-  },
-  bottomItemActive: {
-    backgroundColor: '#147C36',
-  },
-  bottomIcon: {
-    color: '#33403A',
-    fontSize: 26,
-    lineHeight: 28,
-  },
-  bottomHomeIcon: {
-    color: '#FFFFFF',
-    fontSize: 28,
-    lineHeight: 30,
-  },
-  carterButton: {
-    backgroundColor: '#FFFFFF',
-    borderColor: '#1B2A1E',
-    borderRadius: 12,
-    borderWidth: 1,
-    minHeight: 42,
-    paddingHorizontal: 16,
-    justifyContent: 'center',
-  },
-  carterButtonText: {
-    color: '#1B2A1E',
-    fontSize: 13,
-    fontWeight: '700',
   },
   pressed: { opacity: 0.72 },
 });

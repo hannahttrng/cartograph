@@ -127,8 +127,13 @@ export function AiAssistantScreen({ navigation }: Props) {
       return;
     }
 
+    const initialTags = [...new Set([
+      ...recipeResult.tags,
+      ...recipeResult.ingredients.flatMap((ingredient) => ingredient.tags),
+    ])];
     navigation.navigate('NewShoppingList', {
       initialItems: recipeResult.ingredients.map((ingredient) => ingredient.name),
+      initialTags,
       title: recipeResult.title ?? (mode === 'url' ? 'Imported Recipe' : 'Carter Meal Idea'),
     });
   };
@@ -254,6 +259,11 @@ export function AiAssistantScreen({ navigation }: Props) {
                     ) : null}
                   </View>
                 ))}
+                {recipeResult.warnings.map((warning) => (
+                  <Text accessibilityLiveRegion="polite" key={warning} style={styles.warningText}>
+                    {warning}
+                  </Text>
+                ))}
                 <Pressable accessibilityRole="button" onPress={createShoppingList} style={({ pressed }) => [styles.createListButton, pressed && styles.actionPressed]}>
                   <DesignIcon name="plus" size={18} />
                   <Text style={styles.createListLabel}>Create shopping list</Text>
@@ -288,7 +298,7 @@ export function AiAssistantScreen({ navigation }: Props) {
           </View>
         ) : null}
       </KeyboardAvoidingView>
-      <AppBottomNav active="home" navigation={navigation} showCarter={false} />
+          <AppBottomNav active="carter" navigation={navigation} />
     </SafeAreaView>
   );
 }
@@ -297,7 +307,7 @@ const styles = StyleSheet.create({
   screen: { backgroundColor: '#FFFEFE', flex: 1 },
   keyboardView: { flex: 1 },
   header: { alignItems: 'center', borderBottomColor: colors.border, borderBottomWidth: StyleSheet.hairlineWidth, flexDirection: 'row', minHeight: 82, paddingHorizontal: spacing.lg },
-  backButton: { alignItems: 'center', height: 40, justifyContent: 'center', transform: [{ rotate: '-90deg' }], width: 32 },
+  backButton: { marginLeft: -4 },
   headerCopy: { flex: 1, marginLeft: spacing.sm },
   title: { color: colors.text, fontFamily: fontFamily.bold, fontSize: 20, lineHeight: 27 },
   subtitle: { color: colors.textMuted, fontFamily: fontFamily.bold, fontSize: 13, lineHeight: 18 },
@@ -341,6 +351,7 @@ const styles = StyleSheet.create({
   ingredientDot: { backgroundColor: colors.primary, borderRadius: 3, height: 6, marginRight: 10, width: 6 },
   ingredientName: { color: colors.text, flex: 1, fontFamily: fontFamily.regular, fontSize: 14 },
   ingredientQuantity: { color: colors.textMuted, fontFamily: fontFamily.regular, fontSize: 12, marginLeft: spacing.sm },
+  warningText: { color: colors.warning, fontFamily: fontFamily.regular, fontSize: 12, lineHeight: 18, marginTop: spacing.sm },
   createListButton: { alignItems: 'center', borderColor: colors.primary, borderRadius: 8, borderWidth: 1, flexDirection: 'row', justifyContent: 'center', marginTop: spacing.lg, minHeight: 44 },
   createListLabel: { color: colors.primary, fontFamily: fontFamily.bold, fontSize: 14, marginLeft: spacing.sm },
 });
